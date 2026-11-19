@@ -52,12 +52,19 @@ pub struct ProbeArgs {
         help = "Connect and request timeout in seconds"
     )]
     pub timeout: u64,
+    #[arg(
+        long,
+        default_value_t = 20,
+        help = "Seconds per host for all paths and retries"
+    )]
+    pub budget: u64,
 }
 
 impl ProbeArgs {
     pub fn prober(&self) -> Prober {
         let mut p = Prober::new(Limiter::new(self.conc, self.rate));
         p.timeout = Duration::from_secs(self.timeout);
+        p.budget = Duration::from_secs(self.budget);
         p
     }
 }

@@ -125,6 +125,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
                 timeout: std::time::Duration::from_secs(12),
                 redirects: 3,
                 insecure: true,
+                http1_only: true,
             })?;
             let w = ctx.store.writer()?;
             let mut out = Out::new();
