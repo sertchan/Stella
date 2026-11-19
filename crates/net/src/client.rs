@@ -27,6 +27,7 @@ pub struct Options {
     pub timeout: Duration,
     pub redirects: usize,
     pub insecure: bool,
+    pub http1_only: bool,
 }
 
 impl Default for Options {
@@ -35,14 +36,18 @@ impl Default for Options {
             timeout: Duration::from_secs(30),
             redirects: 5,
             insecure: false,
+            http1_only: false,
         }
     }
 }
 
 pub fn build(opts: &Options) -> Result<reqwest::Client> {
     crate::install_crypto();
-    Ok(reqwest::Client::builder()
-        .user_agent(stella_core::config::USER_AGENT)
+    let mut b = reqwest::Client::builder();
+    if opts.http1_only {
+        b = b.http1_only();
+    }
+    Ok(b.user_agent(stella_core::config::USER_AGENT)
         .dns_resolver(Arc::new(OwnResolver))
         .connect_timeout(Duration::from_secs(5))
         .timeout(opts.timeout)
