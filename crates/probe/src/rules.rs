@@ -31,6 +31,27 @@ fn html(r: Option<&Resp>) -> bool {
     })
 }
 
+fn mirrors(r: &Resp, rand: Option<&Resp>) -> bool {
+    let Some(x) = rand else {
+        return false;
+    };
+    if x.status != r.status || x.ctype != r.ctype {
+        return false;
+    }
+    if x.body == r.body {
+        return true;
+    }
+    let (a, b) = (r.body.len(), x.body.len());
+    let near = a.abs_diff(b) * 100 <= a.max(b);
+    let head = MIRROR_HEAD.min(a).min(b);
+    near && head > 0 && r.body[..head] == x.body[..head]
+}
+
+fn fixed<'a>(p: &'a HostProbe, path: &str) -> Option<&'a Resp> {
+    let r = p.get(path)?;
+    (r.status == 200 && !mirrors(r, p.get(RANDOM))).then_some(r)
+}
+
 fn script(r: Option<&Resp>, needle: &str) -> bool {
     !html(r) && has(r, needle)
 }
@@ -47,16 +68,25 @@ pub fn title(r: Option<&Resp>) -> Option<String> {
     (!t.is_empty()).then_some(t)
 }
 
-const PRODUCT_PAGES: &[&str] = &["stape server container"];
+const OWN_UI: &[(&str, &[&str])] = &[
+    ("sgtm", &["stape server container"]),
+    ("matomo", &["matomo", "piwik"]),
+    ("umami", &["umami"]),
+    ("plausible", &["plausible"]),
+    ("posthog", &["posthog"]),
+    ("fathom", &["fathom"]),
+    ("jitsu", &["jitsu"]),
+    ("rudderstack", &["rudder"]),
+];
+const MIRROR_HEAD: usize = 256;
+const POSTHOG_MIN_BYTES: usize = 20_000;
 
 pub fn html_app(p: &HostProbe) -> Option<String> {
     let root = p.get("/")?;
     if root.status != 200 || !html(Some(root)) {
         return None;
     }
-    let t = title(Some(root))?;
-    let lt = t.to_ascii_lowercase();
-    (!PRODUCT_PAGES.iter().any(|pp| lt.contains(pp))).then_some(t)
+    title(Some(root))
 }
 
 fn status(r: Option<&Resp>) -> u16 {
@@ -101,35 +131,37 @@ fn products(p: &HostProbe) -> Vec<(&'static str, String)> {
         out.push(("pixel", format!("random path 200 {}", r.ctype)));
     }
     if has(
-        p.get("/matomo.js"),
+        fixed(p, "/matomo.js"),
         "Matomo - free/libre analytics platform",
-    ) || has(p.get("/matomo.js"), "Piwik - free/libre analytics platform")
-    {
+    ) || has(
+        fixed(p, "/matomo.js"),
+        "Piwik - free/libre analytics platform",
+    ) {
         out.push(("matomo", "/matomo.js".into()));
     }
-    if script(p.get("/js/script.js"), "plausible") {
+    if script(fixed(p, "/js/script.js"), "plausible") {
         out.push(("plausible", "/js/script.js".into()));
     }
-    if script(p.get("/script.js"), "umami") {
+    if script(fixed(p, "/script.js"), "umami") {
         out.push(("umami", "/script.js".into()));
     }
-    if script(p.get("/script.js"), "fathom") {
+    if script(fixed(p, "/script.js"), "fathom") {
         out.push(("fathom", "/script.js".into()));
     }
-    let array = p.get("/static/array.js");
-    if array.is_some_and(|a| a.length > 20_000 || a.body.len() > 20_000)
-        && has(array, "posthog")
+    let array = fixed(p, "/static/array.js");
+    if array.is_some_and(|a| a.body.len() > POSTHOG_MIN_BYTES)
+        && script(array, "posthog")
         && !has(array, "grafana")
     {
         out.push(("posthog", "/static/array.js".into()));
     }
-    if script(p.get("/p.js"), "jitsu") {
+    if script(fixed(p, "/p.js"), "jitsu") {
         out.push(("jitsu", "/p.js".into()));
     }
-    if script(p.get("/lib.min.js"), "mixpanel") {
+    if script(fixed(p, "/lib.min.js"), "mixpanel") {
         out.push(("mixpanel-proxy", "/lib.min.js".into()));
     }
-    if has(p.get("/health"), "\"acceptingEvents\"") {
+    if has(fixed(p, "/health"), "\"acceptingEvents\"") {
         out.push(("rudderstack", "/health".into()));
     }
     let first = p.host.split('.').next().unwrap_or("");
@@ -143,6 +175,14 @@ fn products(p: &HostProbe) -> Vec<(&'static str, String)> {
     out
 }
 
+fn own_ui(product: &str, title: &str) -> bool {
+    let t = title.to_ascii_lowercase();
+    OWN_UI
+        .iter()
+        .filter(|(p, _)| *p == product)
+        .any(|(_, marks)| marks.iter().any(|m| t.contains(m)))
+}
+
 pub fn classify(p: &HostProbe, sub: &str) -> Vec<Hit> {
     let app = html_app(p);
     let skipped = stella_core::token::skipped(sub);
@@ -153,7 +193,7 @@ pub fn classify(p: &HostProbe, sub: &str) -> Vec<Hit> {
                 (DROP, evidence)
             } else if skipped {
                 (DROP, format!("{evidence}; staging or dev name"))
-            } else if let Some(t) = &app {
+            } else if let Some(t) = app.as_ref().filter(|t| !own_ui(product, t)) {
                 (
                     REVIEW,
                     format!(
@@ -376,5 +416,85 @@ mod tests {
             )],
         );
         assert!(products_of(&grafana, "stats").is_empty());
+    }
+
+    #[test]
+    fn ignores_single_page_apps_that_answer_every_path() {
+        let shell = format!(
+            "<!doctype html><html lang=\"en\"><head><title>Plaud Web</title><script>posthog.init('phc_x')</script></head>{}</html>",
+            " ".repeat(26_000)
+        );
+        let spa: Vec<(&str, Option<Resp>)> = [
+            "/",
+            "/static/array.js",
+            "/health",
+            "/script.js",
+            "/matomo.js",
+            RANDOM,
+        ]
+        .into_iter()
+        .map(|p| (p, resp(200, "text/html; charset=utf-8", "", &shell)))
+        .collect();
+        assert!(products_of(&probe("web.plaud.ai", &spa), "web").is_empty());
+        let bundle = format!("{}posthog umami", "x".repeat(30_000));
+        let js_spa: Vec<(&str, Option<Resp>)> = ["/static/array.js", "/script.js", RANDOM]
+            .into_iter()
+            .map(|p| (p, resp(200, "application/javascript", "", &bundle)))
+            .collect();
+        assert!(products_of(&probe("cdn.shop.com", &js_spa), "cdn").is_empty());
+        let real = probe(
+            "ph.shop.com",
+            &[
+                (
+                    "/static/array.js",
+                    resp(
+                        200,
+                        "application/javascript",
+                        "",
+                        &format!("!function(t,e){{posthog}}{}", "x".repeat(30_000)),
+                    ),
+                ),
+                (RANDOM, resp(404, "text/plain", "", "Not Found")),
+            ],
+        );
+        assert_eq!(products_of(&real, "ph"), [("posthog", PICK)]);
+        let redirect = probe(
+            "a.shop.com",
+            &[(
+                "/matomo.js",
+                resp(
+                    302,
+                    "text/html",
+                    "",
+                    "Matomo - free/libre analytics platform",
+                ),
+            )],
+        );
+        assert!(products_of(&redirect, "a").is_empty());
+        let matomo = probe(
+            "stats.uni.edu",
+            &[
+                (
+                    "/",
+                    resp(
+                        200,
+                        "text/html",
+                        "",
+                        "<!DOCTYPE html><html><title>Sign in - Matomo</title></html>",
+                    ),
+                ),
+                (
+                    "/matomo.js",
+                    resp(
+                        200,
+                        "application/javascript",
+                        "",
+                        "var Matomo; Matomo - free/libre analytics platform",
+                    ),
+                ),
+                (RANDOM, resp(404, "text/html", "", "<html>missing</html>")),
+            ],
+        );
+        assert_eq!(products_of(&matomo, "stats"), [("matomo", PICK)]);
     }
 }
