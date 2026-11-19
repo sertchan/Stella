@@ -35,6 +35,12 @@ pub struct Args {
     rounds: usize,
     #[arg(
         long,
+        default_value_t = 10,
+        help = "Hosts probed per registrable domain before the rest of that zone is probed only if it had a hit, 0 probes all"
+    )]
+    zone_sample: usize,
+    #[arg(
+        long,
         default_value_t = 40,
         help = "Skip pivot addresses shared by more hosts than this"
     )]
@@ -108,16 +114,49 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             items.push((host, ip, b));
         }
         let probing = items.len();
-        let (_, answered) = pipeline::probe(ctx, &w, &prober, items, args.probe.conc, |p, h| {
+        let mut seen_in_zone: FxHashMap<String, usize> = FxHashMap::default();
+        let (first, deferred): (Vec<_>, Vec<_>) = items.into_iter().partition(|(h, _, _)| {
+            let n = seen_in_zone
+                .entry(ctx.psl.regdom_or_self(h).to_string())
+                .or_default();
+            *n += 1;
+            args.zone_sample == 0 || *n <= args.zone_sample
+        });
+        let mut hit_zones: FxHashSet<String> = FxHashSet::default();
+        let st = pipeline::probe(ctx, &w, &prober, first, args.probe.conc, |p, h| {
+            picks += usize::from(h.verdict == stella_probe::rules::PICK);
+            if h.verdict != stella_probe::rules::DROP {
+                hit_zones.insert(ctx.psl.regdom_or_self(&p.host).to_string());
+            }
+            out.row(&[&p.host, h.product, h.verdict, &h.evidence]);
+        })
+        .await;
+        let (follow, skipped): (Vec<_>, Vec<_>) = deferred
+            .into_iter()
+            .partition(|(h, _, _)| hit_zones.contains(ctx.psl.regdom_or_self(h)));
+        for (h, _, _) in &skipped {
+            w.send(Row::Done {
+                kind: "sampled-out".into(),
+                key: h.clone(),
+            });
+        }
+        let followed = follow.len();
+        let more = pipeline::probe(ctx, &w, &prober, follow, args.probe.conc, |p, h| {
             picks += usize::from(h.verdict == stella_probe::rules::PICK);
             out.row(&[&p.host, h.product, h.verdict, &h.evidence]);
         })
         .await;
         eprintln!(
-            "round={} fresh={fresh_count} live={live} probed={probing} answered={answered} picks={picks} secs={:.1}",
+            "round={} fresh={fresh_count} live={live} probed={} zone-followups={followed} sampled-out={} picks={picks} secs={:.1} {}",
             r + 1,
-            started.elapsed().as_secs_f64()
+            probing - skipped.len(),
+            skipped.len(),
+            started.elapsed().as_secs_f64(),
+            st.line()
         );
+        if followed > 0 {
+            eprintln!("round={} follow-ups: {}", r + 1, more.line());
+        }
         if r + 1 >= args.rounds {
             break;
         }
