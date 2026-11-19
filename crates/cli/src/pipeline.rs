@@ -184,7 +184,12 @@ pub async fn probe(
             });
         }
         let rd = ctx.psl.regdom_or_self(&p.host);
-        for h in rules::classify(&p, stella_core::name::subdomain(&p.host, rd)) {
+        let allowed = ctx.allowed(&p.host);
+        for mut h in rules::classify(&p, stella_core::name::subdomain(&p.host, rd)) {
+            if let Some(reason) = allowed {
+                h.verdict = rules::DROP;
+                h.evidence = format!("{}; allowlisted: {reason}", h.evidence);
+            }
             on_hit(&p, &h);
             w.send(Row::Hit {
                 host: p.host.clone(),

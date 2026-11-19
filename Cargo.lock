@@ -1745,6 +1745,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "rusqlite",
  "rustc-hash",
  "stella-apk",
  "stella-core",

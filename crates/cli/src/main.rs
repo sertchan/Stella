@@ -1,3 +1,4 @@
+mod allow;
 mod apk;
 mod crawl;
 mod ctx;
@@ -57,6 +58,8 @@ enum Cmd {
     Pivot(pivot::Args),
     #[command(about = "Filter, resolve, cap, probe and pivot the names on stdin in one pass")]
     Hunt(hunt::Args),
+    #[command(about = "Hosts that must never be picked, with the reason")]
+    Allow(allow::Args),
     #[command(about = "List hits with their evidence")]
     Review(review::ReviewArgs),
     #[command(about = "Print picked hosts that no reference list covers")]
@@ -86,6 +89,7 @@ fn main() -> Result<()> {
             Cmd::Score(a) => crawl::score(&mut ctx, a),
             Cmd::Pivot(a) => pivot::run(&mut ctx, a),
             Cmd::Hunt(a) => hunt::run(&mut ctx, a).await,
+            Cmd::Allow(a) => allow::run(&mut ctx, a),
             Cmd::Review(a) => review::review(&ctx, a),
             Cmd::Export(a) => review::export(&ctx, a),
         }
