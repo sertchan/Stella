@@ -211,7 +211,7 @@ pub async fn probe(
                 san: san.clone(),
             });
         }
-        let rd = ctx.psl.regdom_or_self(&p.host);
+        let rd = ctx.psl.icann_regdom_or_self(&p.host);
         let allowed = ctx.allowed(&p.host);
         for mut h in rules::classify(&p, rd) {
             if let Some(reason) = allowed {
