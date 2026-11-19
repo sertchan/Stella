@@ -42,10 +42,16 @@ pub struct ProbeArgs {
     pub conc: usize,
     #[arg(
         long,
-        default_value_t = 250,
+        default_value_t = 1000,
         help = "New connections per second at most"
     )]
     pub rate: u32,
+    #[arg(
+        long,
+        default_value_t = 200,
+        help = "Connections in their TCP and TLS handshake at the same time"
+    )]
+    pub handshakes: usize,
     #[arg(
         long,
         default_value_t = 6,
@@ -58,13 +64,24 @@ pub struct ProbeArgs {
         help = "Seconds per host for all paths and retries"
     )]
     pub budget: u64,
+    #[arg(
+        long,
+        default_value_t = 64,
+        help = "Kilobytes read from each reply at most"
+    )]
+    pub body_kb: usize,
 }
 
 impl ProbeArgs {
     pub fn prober(&self) -> Prober {
-        let mut p = Prober::new(Limiter::new(self.conc, self.rate));
+        let mut p = Prober::new(Limiter::with_handshakes(
+            self.conc,
+            self.rate,
+            self.handshakes,
+        ));
         p.timeout = Duration::from_secs(self.timeout);
         p.budget = Duration::from_secs(self.budget);
+        p.cap = self.body_kb * 1024;
         p
     }
 }
@@ -138,10 +155,8 @@ pub fn battery_for(ctx: &Ctx, host: &str, mode: &str) -> Battery {
         "lite" => Battery::Lite,
         _ => {
             let rd = ctx.psl.regdom_or_self(host);
-            if stella_core::token::tracking(stella_core::name::subdomain(host, rd)) {
-                Battery::Full
-            } else {
-                Battery::Lite
+            Battery::Staged {
+                tracking: stella_core::token::tracking(stella_core::name::subdomain(host, rd)),
             }
         }
     }
@@ -154,15 +169,28 @@ pub async fn probe(
     items: Vec<(String, IpAddr, Battery)>,
     conc: usize,
     mut on_hit: impl FnMut(&HostProbe, &Hit),
-) -> (usize, usize) {
-    let mut total = 0;
-    let mut answered = 0;
+) -> Stats {
+    let mut st = Stats::default();
     battery::probe_all(prober, items, conc, |p| {
-        total += 1;
+        st.total += 1;
+        st.requests += p.requests;
+        st.busy += p.elapsed;
+        if p.answered() {
+            st.live.push(p.elapsed);
+        } else {
+            st.dead_secs += p.elapsed.as_secs_f64();
+        }
+        st.sequential += usize::from(p.sequential);
+        st.connects += p.connects;
         if !p.answered() {
+            let why = p.fails.last().map_or("no-answer", |f| f.as_str());
+            *st.dead.entry(why).or_default() += 1;
             return;
         }
-        answered += 1;
+        st.answered += 1;
+        if p.fails.contains(&stella_net::tls::Fail::TlsReset) {
+            st.dpi_retried += 1;
+        }
         for (path, r) in &p.results {
             let Some(r) = r else { continue };
             w.send(Row::Probe {
@@ -185,7 +213,7 @@ pub async fn probe(
         }
         let rd = ctx.psl.regdom_or_self(&p.host);
         let allowed = ctx.allowed(&p.host);
-        for mut h in rules::classify(&p, stella_core::name::subdomain(&p.host, rd)) {
+        for mut h in rules::classify(&p, rd) {
             if let Some(reason) = allowed {
                 h.verdict = rules::DROP;
                 h.evidence = format!("{}; allowlisted: {reason}", h.evidence);
@@ -200,5 +228,51 @@ pub async fn probe(
         }
     })
     .await;
-    (total, answered)
+    st
+}
+
+#[derive(Default)]
+pub struct Stats {
+    pub total: usize,
+    pub answered: usize,
+    pub requests: usize,
+    pub dpi_retried: usize,
+    pub sequential: usize,
+    pub connects: usize,
+    pub busy: Duration,
+    pub live: Vec<Duration>,
+    pub dead_secs: f64,
+    pub dead: FxHashMap<&'static str, usize>,
+}
+
+impl Stats {
+    pub fn line(&self) -> String {
+        let mut dead: Vec<_> = self.dead.iter().collect();
+        dead.sort_unstable();
+        let dead = dead
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut live = self.live.clone();
+        live.sort_unstable();
+        let pct = |q: usize| {
+            live.get(live.len() * q / 100)
+                .map_or(0.0, Duration::as_secs_f64)
+        };
+        format!(
+            "hosts={} answered={} requests={} connects={} dpi-retried={} no-pipelining={} host-secs={:.0} dead-secs={:.0} live-p50={:.1} p90={:.1} p99={:.1} dead: {dead}",
+            self.total,
+            self.answered,
+            self.requests,
+            self.connects,
+            self.dpi_retried,
+            self.sequential,
+            self.busy.as_secs_f64(),
+            self.dead_secs,
+            pct(50),
+            pct(90),
+            pct(99)
+        )
+    }
 }
