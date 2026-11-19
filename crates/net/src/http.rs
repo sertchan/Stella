@@ -92,12 +92,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
         Ok(false)
     }
 
-    pub async fn get(&mut self, host: &str, path: &str, ua: &str, cap: usize) -> Result<Resp> {
-        let req = format!(
+    fn request(host: &str, path: &str, ua: &str) -> String {
+        format!(
             "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: {ua}\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: keep-alive\r\n\r\n"
-        );
-        self.s.write_all(req.as_bytes()).await?;
-        self.s.flush().await?;
+        )
+    }
+
+    async fn read_one(&mut self, cap: usize) -> Result<Resp> {
         loop {
             let resp = self.head().await?;
             if (100..200).contains(&resp.0.status) && resp.0.status != 101 {
@@ -105,6 +106,47 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
             }
             return self.body(resp, cap).await;
         }
+    }
+
+    pub async fn get(&mut self, host: &str, path: &str, ua: &str, cap: usize) -> Result<Resp> {
+        self.s
+            .write_all(Self::request(host, path, ua).as_bytes())
+            .await?;
+        self.s.flush().await?;
+        self.read_one(cap).await
+    }
+
+    pub async fn send_many(&mut self, host: &str, paths: &[&str], ua: &str) -> Result<()> {
+        let mut wire = String::new();
+        for p in paths {
+            wire.push_str(&Self::request(host, p, ua));
+        }
+        self.s.write_all(wire.as_bytes()).await?;
+        self.s.flush().await
+    }
+
+    pub async fn read_next(&mut self, cap: usize) -> Result<Resp> {
+        self.read_one(cap).await
+    }
+
+    pub async fn get_many(
+        &mut self,
+        host: &str,
+        paths: &[&str],
+        ua: &str,
+        cap: usize,
+        got: &mut Vec<Resp>,
+    ) -> Result<()> {
+        self.send_many(host, paths, ua).await?;
+        for _ in paths {
+            let r = self.read_one(cap).await?;
+            let close = r.close;
+            got.push(r);
+            if close {
+                break;
+            }
+        }
+        Ok(())
     }
 
     async fn head(&mut self) -> Result<(Resp, Option<usize>, bool, bool)> {
@@ -244,5 +286,25 @@ mod tests {
             (r.body.as_slice(), r.close, r.length),
             (&b"0123"[..], false, 10)
         );
+    }
+
+    #[tokio::test]
+    async fn reads_pipelined_replies_in_order() {
+        let (client, mut server) = tokio::io::duplex(1 << 20);
+        tokio::spawn(async move {
+            let mut sink = [0u8; 4096];
+            let _ = server.read(&mut sink).await;
+            let _ = server
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nokHTTP/1.1 404 NF\r\nContent-Length: 0\r\n\r\nHTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 1\r\n\r\nx")
+                .await;
+        });
+        let mut c = Conn::new(client);
+        let mut got = Vec::new();
+        c.get_many("h", &["/a", "/b", "/c", "/d"], "ua", 64, &mut got)
+            .await
+            .expect("pipeline");
+        let s: Vec<u16> = got.iter().map(|r| r.status).collect();
+        assert_eq!(s, [200, 404, 200]);
+        assert!(got[2].close);
     }
 }
