@@ -61,6 +61,10 @@ async fn names(client: &Client, zone: &str, subzone: bool) -> Result<Vec<String>
 
 pub type Outcome = (String, Result<Vec<String>>);
 
+fn take(queue: &Mutex<VecDeque<String>>) -> Option<String> {
+    queue.lock().ok()?.pop_front()
+}
+
 pub async fn run(zones: Vec<String>, par: usize, subzone: bool, tx: mpsc::Sender<Outcome>) {
     let queue = Arc::new(Mutex::new(VecDeque::from(zones)));
     let mut workers = Vec::new();
@@ -70,10 +74,7 @@ pub async fn run(zones: Vec<String>, par: usize, subzone: bool, tx: mpsc::Sender
         workers.push(tokio::spawn(async move {
             let mut rng = stella_core::rng::Rng::seeded();
             let mut client: Option<Client> = None;
-            loop {
-                let Some(zone) = queue.lock().ok().and_then(|mut q| q.pop_front()) else {
-                    break;
-                };
+            while let Some(zone) = take(&queue) {
                 let mut result = Err(anyhow!("not tried"));
                 for attempt in 0..2 {
                     if client.as_ref().is_none_or(Client::is_closed) {
