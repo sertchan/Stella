@@ -1,0 +1,21 @@
+[package]
+name = "stella-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+futures-util.workspace = true
+httparse.workspace = true
+memchr.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+stella-core.workspace = true
+stella-dns.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+x509-parser.workspace = true
+
+[lints]
+workspace = true
