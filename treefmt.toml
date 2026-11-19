@@ -1,0 +1,17 @@
+[global]
+excludes = ["target/**", "result*", "Cargo.lock", "flake.lock", "LICENSE"]
+
+[formatter.nix]
+command = "alejandra"
+options = ["--quiet"]
+includes = ["*.nix"]
+
+[formatter.rust]
+command = "rustfmt"
+options = ["--edition", "2024"]
+includes = ["*.rs"]
+
+[formatter.toml]
+command = "taplo"
+options = ["format"]
+includes = ["*.toml"]
