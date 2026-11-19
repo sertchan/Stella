@@ -5,6 +5,7 @@ use stella_net::http::{Conn, Resp};
 use stella_net::limit::Limiter;
 use stella_net::tls;
 use tokio::task::JoinSet;
+use tokio::time::Instant;
 
 pub const RANDOM: &str = "?random";
 
@@ -59,6 +60,8 @@ pub struct Prober {
     connector: tokio_rustls::TlsConnector,
     limiter: Arc<Limiter>,
     pub timeout: Duration,
+    pub connect_timeout: Duration,
+    pub budget: Duration,
     pub tries: usize,
     pub cap: usize,
 }
@@ -73,6 +76,8 @@ impl Prober {
             connector: tls::insecure_connector(),
             limiter,
             timeout: Duration::from_secs(6),
+            connect_timeout: Duration::from_secs(4),
+            budget: Duration::from_secs(20),
             tries: 5,
             cap: 64 * 1024,
         }
@@ -88,11 +93,15 @@ impl Prober {
         let mut next = 0usize;
         let mut connect_fails = 0usize;
         let mut path_fails = 0usize;
-        while next < paths.len() && connect_fails < self.tries {
+        let deadline = Instant::now() + self.budget;
+        while next < paths.len() && connect_fails < self.tries && Instant::now() < deadline {
             let Some(permit) = self.limiter.slot().await else {
                 break;
             };
-            match tls::connect(&self.connector, host, ip, self.timeout).await {
+            let connect = self
+                .connect_timeout
+                .min(deadline.saturating_duration_since(Instant::now()));
+            match tls::connect(&self.connector, host, ip, connect).await {
                 Ok(stream) => {
                     connect_fails = 0;
                     if sans.is_empty() {
@@ -105,8 +114,9 @@ impl Prober {
                         } else {
                             paths[next]
                         };
+                        let left = deadline.saturating_duration_since(Instant::now());
                         let got = tokio::time::timeout(
-                            self.timeout,
+                            self.timeout.min(left),
                             conn.get(host, path, stella_core::config::USER_AGENT, self.cap),
                         )
                         .await;
@@ -120,12 +130,17 @@ impl Prober {
                                     break;
                                 }
                             }
-                            _ => {
+                            Ok(Err(_)) => {
                                 path_fails += 1;
                                 if path_fails >= PATH_TRIES {
                                     next += 1;
                                     path_fails = 0;
                                 }
+                                break;
+                            }
+                            Err(_) => {
+                                next += 1;
+                                path_fails = 0;
                                 break;
                             }
                         }
