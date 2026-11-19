@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -9,6 +9,7 @@ const CRTSH: &str = "crt.sh";
 const STATEMENT_CAP: Duration = Duration::from_secs(100);
 const RETRY_PAUSE_MIN_MS: u64 = 4000;
 const RETRY_PAUSE_SPREAD_MS: u64 = 8000;
+const ZONE_TRIES: usize = 3;
 
 async fn connect() -> Result<Client> {
     let ip = stella_dns::stub::lookup_a(CRTSH)
@@ -23,7 +24,12 @@ async fn connect() -> Result<Client> {
         .user("guest")
         .dbname("certwatch")
         .connect_timeout(Duration::from_secs(15));
-    let (client, conn) = cfg.connect(NoTls).await.context("crt.sh connect")?;
+    let (client, conn) = cfg.connect(NoTls).await.map_err(|e| {
+        let detail = e
+            .as_db_error()
+            .map_or(e.to_string(), |d| d.message().to_string());
+        anyhow!("crt.sh connect: {detail}")
+    })?;
     tokio::spawn(async move {
         let _ = conn.await;
     });
@@ -76,9 +82,12 @@ pub async fn run(zones: Vec<String>, par: usize, subzone: bool, tx: mpsc::Sender
             let mut client: Option<Client> = None;
             while let Some(zone) = take(&queue) {
                 let mut result = Err(anyhow!("not tried"));
-                for attempt in 0..2 {
+                for attempt in 0..ZONE_TRIES {
                     if client.as_ref().is_none_or(Client::is_closed) {
-                        client = connect().await.ok();
+                        match connect().await {
+                            Ok(c) => client = Some(c),
+                            Err(e) => result = Err(e),
+                        }
                     }
                     if let Some(c) = &client {
                         result = names(c, &zone, subzone).await;
@@ -87,9 +96,10 @@ pub async fn run(zones: Vec<String>, par: usize, subzone: bool, tx: mpsc::Sender
                         }
                         client = None;
                     }
-                    if attempt == 0 {
-                        let pause =
-                            RETRY_PAUSE_MIN_MS + rng.below(RETRY_PAUSE_SPREAD_MS) + w as u64;
+                    if attempt + 1 < ZONE_TRIES {
+                        let pause = (RETRY_PAUSE_MIN_MS + rng.below(RETRY_PAUSE_SPREAD_MS))
+                            * (attempt as u64 + 1)
+                            + w as u64;
                         tokio::time::sleep(Duration::from_millis(pause)).await;
                     }
                 }
