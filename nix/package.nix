@@ -5,6 +5,7 @@
     pkgs.chromium
     pkgs.jadx
     pkgs.apkeep
+    pkgs.xvfb
   ];
 in
   pkgs.rustPlatform.buildRustPackage {

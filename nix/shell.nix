@@ -19,6 +19,7 @@ in
       pkgs.chromium
       pkgs.jadx
       pkgs.apkeep
+      pkgs.xvfb
       preCommit
       comments
     ];
