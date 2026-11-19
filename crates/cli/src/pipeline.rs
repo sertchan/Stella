@@ -13,7 +13,7 @@ use stella_probe::rules::{self, Hit};
 
 #[derive(Clone, clap::Args)]
 pub struct DnsArgs {
-    #[arg(long, default_value_t = 2000, help = "DNS queries per second")]
+    #[arg(long, default_value_t = 6000, help = "DNS queries per second")]
     pub qps: u32,
     #[arg(long, default_value_t = 4, help = "Tries per DNS query")]
     pub tries: u8,
