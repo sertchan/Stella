@@ -76,21 +76,75 @@ pub fn insecure_connector() -> TlsConnector {
     TlsConnector::from(Arc::new(cfg))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Fail {
+    Refused,
+    Unreachable,
+    TcpTimeout,
+    TlsReset,
+    TlsTimeout,
+    TlsOther,
+}
+
+impl Fail {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Refused => "refused",
+            Self::Unreachable => "unreachable",
+            Self::TcpTimeout => "tcp-timeout",
+            Self::TlsReset => "tls-reset",
+            Self::TlsTimeout => "tls-timeout",
+            Self::TlsOther => "tls-error",
+        }
+    }
+
+    pub fn retries(self) -> usize {
+        match self {
+            Self::Refused | Self::Unreachable | Self::TlsOther => 0,
+            Self::TcpTimeout | Self::TlsTimeout => 1,
+            Self::TlsReset => 4,
+        }
+    }
+}
+
+fn tcp_fail(e: &std::io::Error) -> Fail {
+    use std::io::ErrorKind::{ConnectionRefused, HostUnreachable, NetworkUnreachable, TimedOut};
+    match e.kind() {
+        ConnectionRefused => Fail::Refused,
+        HostUnreachable | NetworkUnreachable => Fail::Unreachable,
+        TimedOut => Fail::TcpTimeout,
+        _ => Fail::Unreachable,
+    }
+}
+
+fn tls_fail(e: &std::io::Error) -> Fail {
+    use std::io::ErrorKind::{
+        BrokenPipe, ConnectionAborted, ConnectionReset, TimedOut, UnexpectedEof,
+    };
+    match e.kind() {
+        ConnectionReset | ConnectionAborted | UnexpectedEof | BrokenPipe => Fail::TlsReset,
+        TimedOut => Fail::TlsTimeout,
+        _ => Fail::TlsOther,
+    }
+}
+
 pub async fn connect(
     connector: &TlsConnector,
     host: &str,
     ip: IpAddr,
-    timeout: Duration,
-) -> std::io::Result<TlsStream<TcpStream>> {
+    tcp_timeout: Duration,
+    tls_timeout: Duration,
+) -> Result<TlsStream<TcpStream>, Fail> {
     let name = ServerName::try_from(host.to_string()).unwrap_or(ServerName::IpAddress(ip.into()));
-    let run = async {
-        let tcp = TcpStream::connect(SocketAddr::new(ip, 443)).await?;
-        tcp.set_nodelay(true)?;
-        connector.connect(name, tcp).await
-    };
-    tokio::time::timeout(timeout, run)
+    let tcp = tokio::time::timeout(tcp_timeout, TcpStream::connect(SocketAddr::new(ip, 443)))
         .await
-        .map_err(|_| std::io::Error::from(std::io::ErrorKind::TimedOut))?
+        .map_err(|_| Fail::TcpTimeout)?
+        .map_err(|e| tcp_fail(&e))?;
+    let _ = tcp.set_nodelay(true);
+    tokio::time::timeout(tls_timeout, connector.connect(name, tcp))
+        .await
+        .map_err(|_| Fail::TlsTimeout)?
+        .map_err(|e| tls_fail(&e))
 }
 
 pub fn sans<S>(stream: &TlsStream<S>) -> Vec<String> {
