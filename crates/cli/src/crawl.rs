@@ -162,7 +162,9 @@ pub fn score(ctx: &mut Ctx, args: ScoreArgs) -> Result<()> {
             &format!("{:.2}", s.id),
             &format!("{:.2}", s.path),
         ]);
-        if s.score >= args.review_at {
+        let rd = ctx.psl.regdom_or_self(&s.host);
+        let main = s.host == rd || s.host.strip_prefix("www.") == Some(rd);
+        if s.score >= args.review_at && !main {
             review += 1;
             w.send(Row::Hit {
                 host: s.host.clone(),
