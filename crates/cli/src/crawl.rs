@@ -131,8 +131,15 @@ pub fn score(ctx: &mut Ctx, args: ScoreArgs) -> Result<()> {
     let w = ctx.store.writer()?;
     let mut out = Out::new();
     let mut review = 0usize;
+    let mut by_level = [(0usize, 0usize); 5];
     for s in &scores {
         let labels = known.labels(known.mask(&s.host));
+        let level = &mut by_level[usize::from(s.score.min(4))];
+        if labels.is_empty() {
+            level.1 += 1;
+        } else {
+            level.0 += 1;
+        }
         w.send(Row::Score {
             host: s.host.clone(),
             sites: s.sites as i64,
@@ -170,6 +177,15 @@ pub fn score(ctx: &mut Ctx, args: ScoreArgs) -> Result<()> {
     }
     drop(out);
     w.finish()?;
+    for (score, (known, free)) in by_level.iter().enumerate() {
+        let n = known + free;
+        if n > 0 {
+            eprintln!(
+                "score={score} hosts={n} known={known} share={:.0}%",
+                *known as f64 * 100.0 / n as f64
+            );
+        }
+    }
     eprintln!("hosts={} review={review}", scores.len());
     Ok(())
 }
