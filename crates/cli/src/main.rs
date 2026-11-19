@@ -1,6 +1,7 @@
 mod apk;
 mod crawl;
 mod ctx;
+mod get;
 mod hunt;
 mod known;
 mod pipeline;
@@ -36,6 +37,8 @@ struct Cli {
 enum Cmd {
     #[command(about = "Reference lists and the public suffix list")]
     Known(known::Args),
+    #[command(about = "Fetch one URL through Stella's resolver and print status, type and size")]
+    Get(get::Args),
     #[command(about = "Name sources")]
     Source(source::Args),
     #[command(about = "Resolve names with CNAME chains, wildcard check and reference labels")]
@@ -73,6 +76,7 @@ fn main() -> Result<()> {
         let mut ctx = ctx::Ctx::open(paths)?;
         match cli.cmd {
             Cmd::Known(a) => known::run(&mut ctx, a).await,
+            Cmd::Get(a) => get::run(a).await,
             Cmd::Source(a) => source::run(&mut ctx, a).await,
             Cmd::Resolve(a) => resolve::run(&mut ctx, a).await,
             Cmd::Zone(a) => zone::run(&mut ctx, a).await,
