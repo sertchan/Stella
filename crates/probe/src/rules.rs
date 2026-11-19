@@ -82,11 +82,90 @@ const MIRROR_HEAD: usize = 256;
 const POSTHOG_MIN_BYTES: usize = 20_000;
 
 pub fn html_app(p: &HostProbe) -> Option<String> {
-    let root = p.get("/")?;
-    if root.status != 200 || !html(Some(root)) {
+    let root = page(p.get("/"), p.get(crate::battery::FOLLOWED))?;
+    if !html(Some(root)) {
         return None;
     }
     title(Some(root))
+}
+
+const HINTS: &[(&str, &str)] = &[
+    ("matomo", "/matomo.js"),
+    ("piwik", "/matomo.js"),
+    ("umami", "/script.js"),
+    ("plausible", "/js/script.js"),
+    ("posthog", "/static/array.js"),
+    ("fathom", "/script.js"),
+    ("jitsu", "/p.js"),
+    ("mixpanel", "/lib.min.js"),
+    ("rudder", "/health"),
+];
+
+const BODY_HINTS: &[(&str, &str)] = &[("acceptingevents", "/health")];
+
+fn page<'a>(root: Option<&'a Resp>, followed: Option<&'a Resp>) -> Option<&'a Resp> {
+    root.filter(|r| r.status == 200)
+        .or(followed.filter(|r| r.status == 200))
+}
+
+pub fn stage_two(
+    root: Option<&Resp>,
+    followed: Option<&Resp>,
+    tracking_name: bool,
+) -> Vec<&'static str> {
+    let landing = page(root, followed);
+    let mut v: Vec<&'static str> = Vec::new();
+    if let Some(r) = landing {
+        let body = lower(r);
+        for (mark, path) in BODY_HINTS {
+            if contains(&body, mark) {
+                v.push(path);
+            }
+        }
+    }
+    for r in [root, followed].into_iter().flatten() {
+        if let Some(t) = title(Some(r)).filter(|_| html(Some(r))) {
+            let t = t.to_ascii_lowercase();
+            v.extend(
+                HINTS
+                    .iter()
+                    .filter(|(mark, _)| t.contains(mark))
+                    .map(|(_, path)| *path),
+            );
+        }
+    }
+    let site = landing
+        .filter(|r| html(Some(r)))
+        .and_then(|r| title(Some(r)))
+        .is_some();
+    if v.is_empty() && (!site || tracking_name) {
+        v.extend_from_slice(crate::battery::FULL_EXTRA);
+    }
+    let mut seen: Vec<&'static str> = Vec::new();
+    v.retain(|p| {
+        let fresh = !seen.contains(p);
+        if fresh {
+            seen.push(p);
+        }
+        fresh
+    });
+    v
+}
+
+pub fn same_host_target(location: &str, host: &str) -> Option<String> {
+    let path = if location.starts_with('/') && !location.starts_with("//") {
+        location.to_string()
+    } else {
+        let rest = location
+            .strip_prefix("https://")
+            .or_else(|| location.strip_prefix("http://"))?;
+        let (h, p) = rest.split_once('/').unwrap_or((rest, ""));
+        if !h.eq_ignore_ascii_case(host) {
+            return None;
+        }
+        format!("/{p}")
+    };
+    (path.len() <= 512 && path != "/").then_some(path)
 }
 
 fn status(r: Option<&Resp>) -> u16 {
@@ -216,7 +295,7 @@ pub fn classify(p: &HostProbe, sub: &str) -> Vec<Hit> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::battery::Battery;
+    use crate::battery::{FULL_EXTRA, LITE};
     use std::net::{IpAddr, Ipv4Addr};
 
     fn resp(status: u16, ctype: &str, server: &str, body: &str) -> Option<Resp> {
@@ -231,9 +310,10 @@ mod tests {
     }
 
     fn probe(host: &str, set: &[(&str, Option<Resp>)]) -> HostProbe {
-        let results = Battery::Full
-            .paths()
-            .into_iter()
+        let results = LITE
+            .iter()
+            .chain(FULL_EXTRA)
+            .copied()
             .map(|p| {
                 (
                     p,
@@ -248,6 +328,11 @@ mod tests {
             ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             results,
             sans: Vec::new(),
+            fails: Vec::new(),
+            requests: 0,
+            elapsed: std::time::Duration::ZERO,
+            sequential: false,
+            connects: 0,
         }
     }
 

@@ -3,20 +3,25 @@ use std::sync::Arc;
 use std::time::Duration;
 use stella_net::http::{Conn, Resp};
 use stella_net::limit::Limiter;
-use stella_net::tls;
+use stella_net::tls::{self, Fail};
+use tokio::net::TcpStream;
+use tokio::sync::OwnedSemaphorePermit;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
+use tokio_rustls::client::TlsStream;
 
 pub const RANDOM: &str = "?random";
+pub const FOLLOWED: &str = "/@followed";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Battery {
     Lite,
+    Staged { tracking: bool },
     Full,
 }
 
-const LITE: &[&str] = &["/", "/healthy", "/i", RANDOM];
-const FULL_EXTRA: &[&str] = &[
+pub const LITE: &[&str] = &["/", "/healthy", "/i", RANDOM];
+pub const FULL_EXTRA: &[&str] = &[
     "/matomo.js",
     "/js/script.js",
     "/script.js",
@@ -26,20 +31,16 @@ const FULL_EXTRA: &[&str] = &[
     "/health",
 ];
 
-impl Battery {
-    pub fn paths(self) -> Vec<&'static str> {
-        match self {
-            Self::Lite => LITE.to_vec(),
-            Self::Full => LITE.iter().chain(FULL_EXTRA).copied().collect(),
-        }
-    }
-}
-
 pub struct HostProbe {
     pub host: String,
     pub ip: IpAddr,
     pub results: Vec<(&'static str, Option<Resp>)>,
     pub sans: Vec<String>,
+    pub fails: Vec<Fail>,
+    pub requests: usize,
+    pub elapsed: Duration,
+    pub sequential: bool,
+    pub connects: usize,
 }
 
 impl HostProbe {
@@ -60,14 +61,214 @@ pub struct Prober {
     connector: tokio_rustls::TlsConnector,
     limiter: Arc<Limiter>,
     pub timeout: Duration,
-    pub connect_timeout: Duration,
+    pub tcp_timeout: Duration,
+    pub tls_timeout: Duration,
     pub budget: Duration,
-    pub tries: usize,
     pub cap: usize,
 }
 
 const DPI_PAUSE: Duration = Duration::from_millis(600);
 const PATH_TRIES: usize = 2;
+const PIPELINE_STEP: Duration = Duration::from_millis(1500);
+const SCRIPT_WAIT: Duration = Duration::from_secs(4);
+const SILENT_TIMEOUTS: usize = 2;
+const SPREAD: usize = 3;
+
+struct Session<'a> {
+    prober: &'a Prober,
+    host: &'a str,
+    ip: IpAddr,
+    deadline: Instant,
+    conn: Option<(Conn<TlsStream<TcpStream>>, OwnedSemaphorePermit)>,
+    sans: Vec<String>,
+    fails: Vec<Fail>,
+    requests: usize,
+    dead: bool,
+    timeouts: usize,
+    connects: usize,
+    sequential: bool,
+}
+
+impl<'a> Session<'a> {
+    fn left(&self) -> Duration {
+        self.deadline.saturating_duration_since(Instant::now())
+    }
+
+    async fn open(&mut self) -> bool {
+        while !self.dead {
+            let Some(permit) = self.prober.limiter.slot().await else {
+                self.dead = true;
+                break;
+            };
+            let left = self.left();
+            if left.is_zero() {
+                self.dead = true;
+                break;
+            }
+            let tcp = self.prober.tcp_timeout.min(left);
+            let handshake = self.prober.tls_timeout.min(left);
+            let hs = self.prober.limiter.handshake().await;
+            let connected =
+                tls::connect(&self.prober.connector, self.host, self.ip, tcp, handshake).await;
+            drop(hs);
+            match connected {
+                Ok(stream) => {
+                    if self.sans.is_empty() {
+                        self.sans = tls::sans(&stream);
+                    }
+                    self.conn = Some((Conn::new(stream), permit));
+                    self.connects += 1;
+                    return true;
+                }
+                Err(f) => {
+                    drop(permit);
+                    self.fails.push(f);
+                    let seen = self.fails.iter().filter(|x| **x == f).count();
+                    if seen > f.retries() {
+                        self.dead = true;
+                        break;
+                    }
+                    tokio::time::sleep(DPI_PAUSE.min(self.left())).await;
+                }
+            }
+        }
+        false
+    }
+
+    async fn fetch_many(
+        &mut self,
+        paths: &[&str],
+        first_wait: Duration,
+    ) -> (Vec<Option<Resp>>, usize) {
+        let pipelining = !self.sequential;
+        let mut out: Vec<Option<Resp>> = (0..paths.len()).map(|_| None).collect();
+        let mut next = 0usize;
+        let mut stalls = 0usize;
+        let ua = stella_core::config::USER_AGENT;
+        while next < paths.len() && stalls < PATH_TRIES && !self.dead {
+            if self.conn.is_none() && !self.open().await {
+                break;
+            }
+            let batch_len = if self.sequential {
+                1
+            } else {
+                paths.len() - next
+            };
+            let batch = &paths[next..next + batch_len];
+            let left = self.left();
+            let Some((conn, _)) = self.conn.as_mut() else {
+                break;
+            };
+            if left.is_zero()
+                || tokio::time::timeout(left, conn.send_many(self.host, batch, ua))
+                    .await
+                    .map_or(true, |r| r.is_err())
+            {
+                self.conn = None;
+                stalls += 1;
+                continue;
+            }
+            let mut progressed = false;
+            for i in 0..batch.len() {
+                let wait = if i == 0 { first_wait } else { PIPELINE_STEP }.min(self.left());
+                let Some((conn, _)) = self.conn.as_mut() else {
+                    break;
+                };
+                match tokio::time::timeout(wait, conn.read_next(self.prober.cap)).await {
+                    Ok(Ok(r)) => {
+                        self.requests += 1;
+                        progressed = true;
+                        let close = r.close;
+                        out[next] = Some(r);
+                        next += 1;
+                        if close {
+                            self.conn = None;
+                            break;
+                        }
+                    }
+                    Ok(Err(_)) => {
+                        self.conn = None;
+                        if i > 0 {
+                            self.sequential = true;
+                        }
+                        break;
+                    }
+                    Err(_) => {
+                        self.conn = None;
+                        if i == 0 {
+                            self.timeouts += 1;
+                            if self.requests == 0 && self.timeouts >= SILENT_TIMEOUTS {
+                                self.dead = true;
+                            }
+                            next += 1;
+                            progressed = true;
+                        } else {
+                            self.sequential = true;
+                        }
+                        break;
+                    }
+                }
+            }
+            if pipelining && self.sequential {
+                return (out, next);
+            }
+            if progressed {
+                stalls = 0;
+            } else {
+                stalls += 1;
+            }
+        }
+        let done = paths.len();
+        (out, done)
+    }
+
+    fn child(&self) -> Session<'a> {
+        Session {
+            prober: self.prober,
+            host: self.host,
+            ip: self.ip,
+            deadline: self.deadline,
+            conn: None,
+            sans: Vec::new(),
+            fails: Vec::new(),
+            requests: 0,
+            dead: false,
+            timeouts: 0,
+            connects: 0,
+            sequential: true,
+        }
+    }
+
+    async fn fetch_all(&mut self, paths: &[&str], first_wait: Duration) -> Vec<Option<Resp>> {
+        let (mut out, rest) = self.fetch_many(paths, first_wait).await;
+        if rest >= paths.len() || self.dead {
+            return out;
+        }
+        let tail = &paths[rest..];
+        let k = SPREAD.min(tail.len());
+        let mut idx: Vec<Vec<usize>> = vec![Vec::new(); k];
+        for i in 0..tail.len() {
+            idx[i % k].push(i);
+        }
+        let mut children: Vec<Session<'a>> = (0..k).map(|_| self.child()).collect();
+        let runs = children.iter_mut().zip(idx.iter()).map(|(c, ix)| {
+            let ps: Vec<&str> = ix.iter().map(|&i| tail[i]).collect();
+            async move { c.fetch_many(&ps, first_wait).await.0 }
+        });
+        let got = futures_util::future::join_all(runs).await;
+        for (ix, res) in idx.iter().zip(got) {
+            for (&i, r) in ix.iter().zip(res) {
+                out[rest + i] = r;
+            }
+        }
+        for c in children {
+            self.requests += c.requests;
+            self.connects += c.connects;
+            self.fails.extend(c.fails);
+        }
+        out
+    }
+}
 
 impl Prober {
     pub fn new(limiter: Arc<Limiter>) -> Self {
@@ -76,88 +277,88 @@ impl Prober {
             connector: tls::insecure_connector(),
             limiter,
             timeout: Duration::from_secs(6),
-            connect_timeout: Duration::from_secs(4),
+            tcp_timeout: Duration::from_millis(2500),
+            tls_timeout: Duration::from_secs(4),
             budget: Duration::from_secs(20),
-            tries: 5,
             cap: 64 * 1024,
         }
     }
 
     pub async fn probe(&self, host: &str, ip: IpAddr, battery: Battery) -> HostProbe {
+        let started = Instant::now();
         let mut rng = stella_core::rng::Rng::seeded();
         let random_path = format!("/{}", rng.label());
-        let paths = battery.paths();
-        let mut results: Vec<(&'static str, Option<Resp>)> =
-            paths.iter().map(|p| (*p, None)).collect();
-        let mut sans = Vec::new();
-        let mut next = 0usize;
-        let mut connect_fails = 0usize;
-        let mut path_fails = 0usize;
-        let deadline = Instant::now() + self.budget;
-        while next < paths.len() && connect_fails < self.tries && Instant::now() < deadline {
-            let Some(permit) = self.limiter.slot().await else {
-                break;
-            };
-            let connect = self
-                .connect_timeout
-                .min(deadline.saturating_duration_since(Instant::now()));
-            match tls::connect(&self.connector, host, ip, connect).await {
-                Ok(stream) => {
-                    connect_fails = 0;
-                    if sans.is_empty() {
-                        sans = tls::sans(&stream);
-                    }
-                    let mut conn = Conn::new(stream);
-                    while next < paths.len() {
-                        let path = if paths[next] == RANDOM {
-                            random_path.as_str()
-                        } else {
-                            paths[next]
-                        };
-                        let left = deadline.saturating_duration_since(Instant::now());
-                        let got = tokio::time::timeout(
-                            self.timeout.min(left),
-                            conn.get(host, path, stella_core::config::USER_AGENT, self.cap),
-                        )
-                        .await;
-                        match got {
-                            Ok(Ok(r)) => {
-                                let close = r.close;
-                                results[next].1 = Some(r);
-                                next += 1;
-                                path_fails = 0;
-                                if close {
-                                    break;
-                                }
-                            }
-                            Ok(Err(_)) => {
-                                path_fails += 1;
-                                if path_fails >= PATH_TRIES {
-                                    next += 1;
-                                    path_fails = 0;
-                                }
-                                break;
-                            }
-                            Err(_) => {
-                                next += 1;
-                                path_fails = 0;
-                                break;
-                            }
-                        }
-                    }
+        let mut s = Session {
+            prober: self,
+            host,
+            ip,
+            deadline: started + self.budget,
+            conn: None,
+            sans: Vec::new(),
+            fails: Vec::new(),
+            requests: 0,
+            dead: false,
+            timeouts: 0,
+            connects: 0,
+            sequential: false,
+        };
+        let mut results: Vec<(&'static str, Option<Resp>)> = Vec::new();
+        let first: Vec<&'static str> = match battery {
+            Battery::Full => LITE.iter().chain(FULL_EXTRA).copied().collect(),
+            Battery::Lite | Battery::Staged { .. } => LITE.to_vec(),
+        };
+        let real: Vec<&str> = first
+            .iter()
+            .map(|p| {
+                if *p == RANDOM {
+                    random_path.as_str()
+                } else {
+                    p
                 }
-                Err(_) => connect_fails += 1,
+            })
+            .collect();
+        let got = s.fetch_all(&real, self.timeout).await;
+        results.extend(first.iter().copied().zip(got));
+        if let Battery::Staged { tracking } = battery
+            && !s.dead
+            && results.iter().any(|(_, r)| r.is_some())
+        {
+            let target = results
+                .iter()
+                .find(|(q, _)| *q == "/")
+                .and_then(|(_, r)| r.as_ref())
+                .filter(|r| (300..400).contains(&r.status))
+                .and_then(|r| crate::rules::same_host_target(&r.location, host));
+            if let Some(t) = target {
+                let r = s
+                    .fetch_all(&[t.as_str()], self.timeout)
+                    .await
+                    .pop()
+                    .flatten();
+                results.push((FOLLOWED, r));
             }
-            drop(permit);
-            if next < paths.len() && connect_fails > 0 {
-                tokio::time::sleep(DPI_PAUSE).await;
+            let get = |p: &str| {
+                results
+                    .iter()
+                    .find(|(q, _)| *q == p)
+                    .and_then(|(_, r)| r.as_ref())
+            };
+            let second = crate::rules::stage_two(get("/"), get(FOLLOWED), tracking);
+            if !s.dead && !second.is_empty() {
+                let got = s.fetch_all(&second, SCRIPT_WAIT.min(self.timeout)).await;
+                results.extend(second.iter().copied().zip(got));
             }
         }
         HostProbe {
             host: host.to_string(),
             ip,
             results,
-            sans,
+            sans: std::mem::take(&mut s.sans),
+            fails: std::mem::take(&mut s.fails),
+            requests: s.requests,
+            elapsed: started.elapsed(),
+            sequential: s.sequential,
+            connects: s.connects,
         }
     }
 }
