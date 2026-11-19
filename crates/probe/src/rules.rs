@@ -262,8 +262,23 @@ fn own_ui(product: &str, title: &str) -> bool {
         .any(|(_, marks)| marks.iter().any(|m| t.contains(m)))
 }
 
-pub fn classify(p: &HostProbe, sub: &str) -> Vec<Hit> {
+fn main_site(p: &HostProbe, regdom: &str) -> bool {
+    p.host == regdom || p.host.strip_prefix("www.") == Some(regdom)
+}
+
+fn landing_title(p: &HostProbe) -> Option<String> {
+    [p.get("/"), p.get(crate::battery::FOLLOWED)]
+        .into_iter()
+        .flatten()
+        .filter(|r| html(Some(r)))
+        .find_map(|r| title(Some(r)))
+}
+
+pub fn classify(p: &HostProbe, regdom: &str) -> Vec<Hit> {
+    let sub = stella_core::name::subdomain(&p.host, regdom);
     let app = html_app(p);
+    let main = main_site(p, regdom);
+    let landing = landing_title(p);
     let skipped = stella_core::token::skipped(sub);
     products(p)
         .into_iter()
@@ -272,6 +287,8 @@ pub fn classify(p: &HostProbe, sub: &str) -> Vec<Hit> {
                 (DROP, evidence)
             } else if skipped {
                 (DROP, format!("{evidence}; staging or dev name"))
+            } else if main && !landing.as_deref().is_some_and(|t| own_ui(product, t)) {
+                (REVIEW, format!("{evidence}; main site of its zone"))
             } else if let Some(t) = app.as_ref().filter(|t| !own_ui(product, t)) {
                 (
                     REVIEW,
@@ -337,7 +354,8 @@ mod tests {
     }
 
     fn products_of(p: &HostProbe, sub: &str) -> Vec<(&'static str, &'static str)> {
-        classify(p, sub)
+        let regdom = p.host.strip_prefix(&format!("{sub}.")).unwrap_or(&p.host);
+        classify(p, regdom)
             .into_iter()
             .map(|h| (h.product, h.verdict))
             .collect()
@@ -581,5 +599,90 @@ mod tests {
             ],
         );
         assert_eq!(products_of(&matomo, "stats"), [("matomo", PICK)]);
+    }
+
+    #[test]
+    fn guards_main_sites_but_not_analytics_dashboards() {
+        let matomo_js = resp(
+            200,
+            "application/javascript",
+            "",
+            "Matomo - free/libre analytics platform",
+        );
+        let mut moved = resp(301, "", "", "");
+        if let Some(r) = moved.as_mut() {
+            r.location = "https://brave.com/".into();
+        }
+        let www = probe(
+            "www.brave.com",
+            &[("/", moved.clone()), ("/matomo.js", matomo_js.clone())],
+        );
+        assert_eq!(products_of(&www, "www"), [("matomo", REVIEW)]);
+        let apex = probe("brave.com", &[("/matomo.js", matomo_js.clone())]);
+        assert_eq!(classify(&apex, "brave.com")[0].verdict, REVIEW);
+        let ui = resp(
+            200,
+            "text/html",
+            "",
+            "<html><title>Sign in - Matomo</title></html>",
+        );
+        let platform = probe(
+            "stats.example.app",
+            &[("/", ui), ("/matomo.js", matomo_js.clone())],
+        );
+        assert_eq!(classify(&platform, "stats.example.app")[0].verdict, PICK);
+        let proxy = probe(
+            "stats.shop.com",
+            &[("/", moved), ("/matomo.js", matomo_js.clone())],
+        );
+        assert_eq!(products_of(&proxy, "stats"), [("matomo", PICK)]);
+        let mut sso = resp(302, "", "", "");
+        if let Some(r) = sso.as_mut() {
+            r.location = "/index.php?module=Login".into();
+        }
+        let dashboard = probe(
+            "analytics.uni.edu",
+            &[("/", sso), ("/matomo.js", matomo_js)],
+        );
+        assert_eq!(products_of(&dashboard, "analytics"), [("matomo", PICK)]);
+    }
+
+    #[test]
+    fn picks_second_stage_paths_from_the_root_reply() {
+        let site = resp(200, "text/html", "", "<html><title>Shop</title></html>");
+        assert!(stage_two(site.as_ref(), None, false).is_empty());
+        assert_eq!(stage_two(site.as_ref(), None, true), FULL_EXTRA);
+        let matomo = resp(
+            200,
+            "text/html",
+            "",
+            "<html><title>Sign in - Matomo</title></html>",
+        );
+        assert_eq!(stage_two(matomo.as_ref(), None, false), ["/matomo.js"]);
+        let api = resp(400, "", "", "");
+        assert_eq!(stage_two(api.as_ref(), None, false), FULL_EXTRA);
+        let redirect = resp(307, "", "", "");
+        let login = resp(200, "text/html", "", "<html><title>Umami</title></html>");
+        assert_eq!(
+            stage_two(redirect.as_ref(), login.as_ref(), false),
+            ["/script.js"]
+        );
+        let rudder = resp(
+            200,
+            "application/json",
+            "",
+            "{\"acceptingEvents\":\"TRUE\"}",
+        );
+        assert_eq!(stage_two(rudder.as_ref(), None, false)[0], "/health");
+        assert_eq!(
+            same_host_target("/login", "a.io").as_deref(),
+            Some("/login")
+        );
+        assert_eq!(
+            same_host_target("https://a.io/x?y=1", "a.io").as_deref(),
+            Some("/x?y=1")
+        );
+        assert!(same_host_target("https://www.b.io/", "a.io").is_none());
+        assert!(same_host_target("//evil.io/x", "a.io").is_none());
     }
 }
