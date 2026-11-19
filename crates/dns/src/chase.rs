@@ -7,6 +7,8 @@ use std::net::Ipv4Addr;
 pub const TIMEOUT: i64 = -1;
 const MAX_CHAIN: usize = 12;
 const ROUNDS: usize = 4;
+const RETRY_SLOWDOWN: u32 = 4;
+const RETRY_MIN_QPS: u32 = 200;
 
 #[derive(Clone, Debug, Default)]
 pub struct Resolved {
@@ -97,6 +99,40 @@ pub async fn resolve(cfg: &Config, names: Vec<String>) -> Result<Vec<Resolved>> 
     })
     .await?;
     drop(queries);
+
+    let lost: Vec<Query> = out
+        .iter()
+        .filter(|r| r.rcode == TIMEOUT)
+        .map(|r| Query::recursive(r.host.clone(), wire::A))
+        .collect();
+    if !lost.is_empty() {
+        let slow = Config {
+            qps: (cfg.qps / RETRY_SLOWDOWN).max(RETRY_MIN_QPS),
+            ..cfg.clone()
+        };
+        let mut again: FxHashMap<String, Resolved> = FxHashMap::default();
+        engine::run(&slow, &lost, |r| {
+            if let Some(m) = r.msg {
+                let host = r.query.name.clone();
+                let (chain, addrs) = follow(&m, &host);
+                again.insert(
+                    host.clone(),
+                    Resolved {
+                        host,
+                        rcode: i64::from(m.rcode),
+                        chain,
+                        addrs,
+                    },
+                );
+            }
+        })
+        .await?;
+        for r in out.iter_mut().filter(|r| r.rcode == TIMEOUT) {
+            if let Some(a) = again.remove(&r.host) {
+                *r = a;
+            }
+        }
+    }
 
     for _ in 0..ROUNDS {
         let open: FxHashSet<String> = out
