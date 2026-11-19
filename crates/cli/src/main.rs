@@ -8,6 +8,7 @@ mod known;
 mod pipeline;
 mod pivot;
 mod probe;
+mod recheck;
 mod resolve;
 mod review;
 mod source;
@@ -54,6 +55,8 @@ enum Cmd {
     Crawl(crawl::CrawlArgs),
     #[command(about = "Score request hosts by prevalence, POST share, id keys and collector paths")]
     Score(crawl::ScoreArgs),
+    #[command(about = "Probe old picks again and mark the ones that no longer answer as STALE")]
+    Recheck(recheck::Args),
     #[command(about = "Address neighbours, certificate names and zones of the picks")]
     Pivot(pivot::Args),
     #[command(about = "Filter, resolve, cap, probe and pivot the names on stdin in one pass")]
@@ -87,6 +90,7 @@ fn main() -> Result<()> {
             Cmd::Apk(a) => apk::run(&mut ctx, a).await,
             Cmd::Crawl(a) => crawl::crawl(&mut ctx, a).await,
             Cmd::Score(a) => crawl::score(&mut ctx, a),
+            Cmd::Recheck(a) => recheck::run(&mut ctx, a).await,
             Cmd::Pivot(a) => pivot::run(&mut ctx, a),
             Cmd::Hunt(a) => hunt::run(&mut ctx, a).await,
             Cmd::Allow(a) => allow::run(&mut ctx, a),
