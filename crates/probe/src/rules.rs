@@ -69,7 +69,7 @@ pub fn title(r: Option<&Resp>) -> Option<String> {
 }
 
 const OWN_UI: &[(&str, &[&str])] = &[
-    ("sgtm", &["stape server container"]),
+    ("sgtm", &["stape server container", "taggrs", "heytag"]),
     ("matomo", &["matomo", "piwik"]),
     ("umami", &["umami"]),
     ("plausible", &["plausible"]),
