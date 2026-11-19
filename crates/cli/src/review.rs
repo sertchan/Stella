@@ -51,9 +51,11 @@ pub fn export(ctx: &Ctx, args: ExportArgs) -> Result<()> {
         "SELECT DISTINCT hit.host FROM hit LEFT JOIN name USING(host) WHERE hit.verdict = 'PICK' {filter} ORDER BY hit.host"
     ))?;
     let mut out = Out::new();
-    for r in &rows {
+    let mut n = 0usize;
+    for r in rows.iter().filter(|r| ctx.allowed(&r[0]).is_none()) {
+        n += 1;
         out.row(&[&r[0]]);
     }
-    eprintln!("hosts={}", rows.len());
+    eprintln!("hosts={n} allowlisted={}", rows.len() - n);
     Ok(())
 }

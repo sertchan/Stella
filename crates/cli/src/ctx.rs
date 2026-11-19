@@ -11,6 +11,7 @@ pub struct Ctx {
     pub store: Store,
     pub psl: Psl,
     known: std::cell::OnceCell<Known>,
+    allow: std::cell::OnceCell<rustc_hash::FxHashMap<String, String>>,
 }
 
 impl Ctx {
@@ -26,6 +27,7 @@ impl Ctx {
             store,
             psl,
             known: std::cell::OnceCell::new(),
+            allow: std::cell::OnceCell::new(),
         })
     }
 
@@ -41,6 +43,22 @@ impl Ctx {
 
     pub fn regdom(&self, host: &str) -> String {
         self.psl.regdom_or_self(host).to_string()
+    }
+
+    pub fn allowed(&self, host: &str) -> Option<&str> {
+        let map = self.allow.get_or_init(|| {
+            self.store
+                .rows("SELECT host, reason FROM allow")
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|mut r| {
+                    let reason = r.pop()?;
+                    let host = r.pop()?;
+                    Some((host, reason))
+                })
+                .collect()
+        });
+        stella_core::name::suffixes(host).find_map(|s| map.get(s).map(String::as_str))
     }
 }
 
