@@ -23,7 +23,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             servers: stella_core::config::resolvers(),
-            qps: 2000,
+            qps: 6000,
             timeout: Duration::from_millis(2500),
             tries: 4,
             sockets: 8,
