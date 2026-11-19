@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS tag(site TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY
 CREATE TABLE IF NOT EXISTS request(site TEXT NOT NULL, method TEXT NOT NULL, url TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS score(host TEXT PRIMARY KEY, sites INTEGER NOT NULL, requests INTEGER NOT NULL, post REAL NOT NULL, id REAL NOT NULL, path REAL NOT NULL, score INTEGER NOT NULL, known TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS apk_url(pkg TEXT NOT NULL, method TEXT NOT NULL, url TEXT NOT NULL, member TEXT NOT NULL, PRIMARY KEY(pkg, method, url)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS allow(host TEXT PRIMARY KEY, reason TEXT NOT NULL, at INTEGER NOT NULL) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS origin_source ON origin(source);
 CREATE INDEX IF NOT EXISTS addr_host ON addr(host);
 CREATE INDEX IF NOT EXISTS request_site ON request(site);
@@ -89,6 +90,10 @@ pub enum Row {
         path: f64,
         score: i64,
         known: String,
+    },
+    Allow {
+        host: String,
+        reason: String,
     },
     ApkUrl {
         pkg: String,
@@ -263,6 +268,9 @@ fn insert(conn: &Connection, row: Row, at: i64) -> rusqlite::Result<usize> {
         } => conn
             .prepare_cached("INSERT OR REPLACE INTO score VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?
             .execute(params![host, sites, requests, post, id, path, score, known]),
+        Row::Allow { host, reason } => conn
+            .prepare_cached("INSERT OR REPLACE INTO allow VALUES(?1, ?2, ?3)")?
+            .execute(params![host, reason, at]),
         Row::ApkUrl {
             pkg,
             method,
