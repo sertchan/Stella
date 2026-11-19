@@ -15,7 +15,7 @@ pub struct Args {
     #[arg(
         long,
         default_value = "auto",
-        help = "Path set: lite, full, or auto (full for tracking-token names)"
+        help = "Path set: lite, full, or auto (second stage picked from the first replies)"
     )]
     battery: String,
 }
@@ -54,7 +54,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     let prober = args.probe.prober();
     let mut out = Out::new();
     let mut verdicts: FxHashMap<&'static str, usize> = FxHashMap::default();
-    let (total, answered) = pipeline::probe(ctx, &w, &prober, items, args.probe.conc, |p, h| {
+    let st = pipeline::probe(ctx, &w, &prober, items, args.probe.conc, |p, h| {
         *verdicts.entry(h.verdict).or_default() += 1;
         out.row(&[&p.host, h.product, h.verdict, &h.evidence]);
     })
@@ -62,7 +62,8 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     drop(out);
     let rows = w.finish()?;
     eprintln!(
-        "hosts={total} answered={answered} pick={} review={} drop={} rows={rows} secs={:.1}",
+        "{} pick={} review={} drop={} rows={rows} secs={:.1}",
+        st.line(),
         verdicts.get("PICK").unwrap_or(&0),
         verdicts.get("REVIEW").unwrap_or(&0),
         verdicts.get("DROP").unwrap_or(&0),
