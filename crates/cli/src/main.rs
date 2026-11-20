@@ -1,6 +1,7 @@
 mod allow;
 mod apk;
 mod audit;
+mod breakage;
 mod campaign;
 mod cname;
 mod crawl;
@@ -74,6 +75,10 @@ enum Cmd {
     )]
     Audit(audit::Args),
     #[command(
+        about = "Load pages with and without a host blocked by DNS and report visible breakage"
+    )]
+    Breakage(breakage::Args),
+    #[command(
         about = "Run one full discovery round: sync, expand new picks, hunt, twins, vendor CNAMEs, recheck and audit"
     )]
     Campaign(campaign::Args),
@@ -113,6 +118,7 @@ fn main() -> Result<()> {
             Cmd::Hunt(a) => hunt::run(&mut ctx, a).await,
             Cmd::Allow(a) => allow::run(&mut ctx, a),
             Cmd::Audit(a) => audit::run(&mut ctx, a).await,
+            Cmd::Breakage(a) => breakage::run(&mut ctx, a).await,
             Cmd::Campaign(a) => campaign::run(&mut ctx, a).await,
             Cmd::Stats => stats::run(&ctx),
             Cmd::Twins(a) => twins::run(&mut ctx, a).await,
