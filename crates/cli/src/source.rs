@@ -94,6 +94,42 @@ enum Cmd {
         #[arg(long, default_value_t = 60, help = "Most frequent labels to use")]
         top: usize,
     },
+    #[command(
+        about = "Ad systems from each site's ads.txt and their sellers.json, as zones for crt.sh"
+    )]
+    Adtech {
+        #[arg(long, default_value_t = 80, help = "Sites fetched in parallel")]
+        par: usize,
+        #[arg(
+            long,
+            default_value_t = 3,
+            help = "sellers.json files an intermediary must appear in"
+        )]
+        min_intermediary: usize,
+    },
+    #[command(about = "Endpoint hosts in Prebid.js bid adapters and Prebid Server bidder info")]
+    Prebid,
+    #[command(about = "Cookie and storage domains from the IAB TCF vendor list disclosures")]
+    Cmp {
+        #[arg(long, default_value_t = 40, help = "Disclosures fetched in parallel")]
+        par: usize,
+    },
+    #[command(
+        about = "Hosts named inside the scripts and consent configs the crawled pages loaded"
+    )]
+    Scripts {
+        #[arg(long, default_value_t = 60, help = "Scripts fetched in parallel")]
+        par: usize,
+    },
+    #[command(
+        about = "Hosts in pages, scripts or reports given as URLs or files on stdin, defanged names included"
+    )]
+    Extract,
+    #[command(about = "Names under each zone on stdin from subdomain.center passive data")]
+    Passive {
+        #[arg(long, default_value_t = 4, help = "Zones queried in parallel")]
+        par: usize,
+    },
 }
 
 pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
@@ -408,6 +444,15 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
                 zones.len()
             );
         }
+        Cmd::Adtech {
+            par,
+            min_intermediary,
+        } => crate::feeds::adtech(ctx, par, min_intermediary).await?,
+        Cmd::Prebid => crate::feeds::prebid(ctx).await?,
+        Cmd::Cmp { par } => crate::feeds::cmp(ctx, par).await?,
+        Cmd::Scripts { par } => crate::feeds::scripts(ctx, par).await?,
+        Cmd::Extract => crate::feeds::extract(ctx).await?,
+        Cmd::Passive { par } => crate::feeds::passive(ctx, par).await?,
     }
     Ok(())
 }

@@ -2,6 +2,7 @@ mod allow;
 mod apk;
 mod crawl;
 mod ctx;
+mod feeds;
 mod get;
 mod hunt;
 mod known;
