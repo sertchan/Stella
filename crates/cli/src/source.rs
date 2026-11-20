@@ -130,6 +130,45 @@ enum Cmd {
         #[arg(long, default_value_t = 4, help = "Zones queried in parallel")]
         par: usize,
     },
+    #[command(
+        about = "Learn tracker vendor CNAME targets from the reference lists and AdGuard cname-trackers, then list unlisted names that CNAME into them"
+    )]
+    CnameVendors {
+        #[command(flatten)]
+        dns: crate::pipeline::DnsArgs,
+        #[arg(long, help = "Only match stored names against the stored vendors")]
+        match_only: bool,
+        #[arg(
+            long,
+            default_value_t = 120_000,
+            help = "Reference list hosts resolved to learn from"
+        )]
+        sample: usize,
+        #[arg(
+            long,
+            default_value_t = 50_000,
+            help = "Top sites resolved as the background"
+        )]
+        top: usize,
+        #[arg(
+            long,
+            default_value = "tranco",
+            help = "Top site list for the background"
+        )]
+        list: String,
+        #[arg(
+            long,
+            default_value_t = 8,
+            help = "Included zones that must point under a suffix"
+        )]
+        min_zones: usize,
+        #[arg(
+            long,
+            default_value_t = 5.0,
+            help = "How many times more often included zones point under a suffix than top sites do"
+        )]
+        min_lift: f64,
+    },
 }
 
 pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
@@ -453,6 +492,27 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         Cmd::Scripts { par } => crate::feeds::scripts(ctx, par).await?,
         Cmd::Extract => crate::feeds::extract(ctx).await?,
         Cmd::Passive { par } => crate::feeds::passive(ctx, par).await?,
+        Cmd::CnameVendors {
+            dns,
+            match_only,
+            sample,
+            top,
+            list,
+            min_zones,
+            min_lift,
+        } => {
+            if !match_only {
+                let learn = crate::cname::Learn {
+                    sample,
+                    top,
+                    list,
+                    min_zones,
+                    min_lift,
+                };
+                crate::cname::learn(ctx, &dns.config(), &learn).await?;
+            }
+            crate::cname::matches(ctx)?;
+        }
     }
     Ok(())
 }
