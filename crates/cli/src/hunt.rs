@@ -47,6 +47,8 @@ pub struct Args {
     max_ip: i64,
     #[arg(long, help = "Also probe names resolved in an earlier run")]
     again: bool,
+    #[arg(long, help = "Pivot from REVIEW hits too, not only from picks")]
+    pivot_review: bool,
     #[arg(
         long,
         help = "Skip the check for CNAMEs to included hosts seen from EU, US and Asia client subnets"
@@ -177,7 +179,12 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             break;
         }
         tokio::task::block_in_place(|| w.flush());
-        let p = stella_sources::pivot::collect(&ctx.store.conn, &ctx.psl, args.max_ip)?;
+        let p = stella_sources::pivot::collect(
+            &ctx.store.conn,
+            &ctx.psl,
+            args.max_ip,
+            args.pivot_review,
+        )?;
         for (host, addr, via) in &p.neighbours {
             if let Ok(ip) = addr.parse::<IpAddr>() {
                 round.pinned.push((host.clone(), ip));
