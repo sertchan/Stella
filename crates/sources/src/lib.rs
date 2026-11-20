@@ -4,6 +4,7 @@ pub mod labels;
 pub mod pivot;
 pub mod site;
 pub mod toplist;
+pub mod variants;
 
 pub fn hosts_in(text: &[u8], re: &regex::bytes::Regex, group: usize) -> Vec<String> {
     let mut out: Vec<String> = re
