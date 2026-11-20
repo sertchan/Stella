@@ -228,6 +228,7 @@ pub async fn run(
         display: display.as_ref().map(|d| d.name.clone()),
         width: opts.width,
         height: opts.height,
+        extra: Vec::new(),
     };
     let per_browser = opts.restart_every.max(opts.par).max(1);
     for (n, chunk) in urls.chunks(per_browser).enumerate() {

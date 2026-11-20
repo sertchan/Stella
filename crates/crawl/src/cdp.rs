@@ -25,6 +25,7 @@ pub struct Launch {
     pub display: Option<String>,
     pub width: u32,
     pub height: u32,
+    pub extra: Vec<String>,
 }
 
 pub struct Browser {
@@ -76,6 +77,7 @@ impl Browser {
         .arg(format!("--window-size={},{}", opts.width, opts.height))
         .arg(format!("--user-data-dir={}", profile.display()))
         .arg(format!("--user-agent={ANDROID_UA}"))
+        .args(&opts.extra)
         .arg("about:blank")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
