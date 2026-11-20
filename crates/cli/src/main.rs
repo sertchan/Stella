@@ -1,5 +1,6 @@
 mod allow;
 mod apk;
+mod audit;
 mod crawl;
 mod ctx;
 mod feeds;
@@ -65,6 +66,10 @@ enum Cmd {
     Hunt(hunt::Args),
     #[command(about = "Hosts that must never be picked, with the reason")]
     Allow(allow::Args),
+    #[command(
+        about = "Lower hits named in HaGeZi allow or deny issues or excepted by other lists, after syncing them"
+    )]
+    Audit(audit::Args),
     #[command(about = "Keep candidates that answer exactly like their listed seed or sibling")]
     Twins(twins::Args),
     #[command(about = "List hits with their evidence")]
@@ -98,6 +103,7 @@ fn main() -> Result<()> {
             Cmd::Pivot(a) => pivot::run(&mut ctx, a),
             Cmd::Hunt(a) => hunt::run(&mut ctx, a).await,
             Cmd::Allow(a) => allow::run(&mut ctx, a),
+            Cmd::Audit(a) => audit::run(&mut ctx, a).await,
             Cmd::Twins(a) => twins::run(&mut ctx, a).await,
             Cmd::Review(a) => review::review(&ctx, a),
             Cmd::Export(a) => review::export(&ctx, a),
