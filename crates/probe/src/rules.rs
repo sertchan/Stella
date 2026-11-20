@@ -80,6 +80,31 @@ const OWN_UI: &[(&str, &[&str])] = &[
 ];
 const MIRROR_HEAD: usize = 256;
 const POSTHOG_MIN_BYTES: usize = 20_000;
+const COLLECTOR_MAX_BYTES: usize = 512;
+const PIXEL_MAX_BYTES: usize = 100;
+const COLLECTOR_STRONG: &[&str] = &[
+    "missing payload",
+    "missing event",
+    "no events",
+    "invalid write key",
+    "invalid writekey",
+    "please post",
+    "only post",
+    "no data received",
+    "event received",
+    "events received",
+    "unexpected end of json",
+    "missing body",
+    "empty body",
+    "request body is empty",
+];
+const COLLECTOR_WEAK: &[&str] = &[
+    "\"status\":\"ok\"",
+    "\"status\": \"ok\"",
+    "{\"success\":true}",
+    "{\"ok\":true}",
+];
+pub const COLLECTOR: &str = "collector";
 
 pub fn html_app(p: &HostProbe) -> Option<String> {
     let root = page(p.get("/"), p.get(crate::battery::FOLLOWED))?;
@@ -254,6 +279,57 @@ fn products(p: &HostProbe) -> Vec<(&'static str, String)> {
     out
 }
 
+fn collector(p: &HostProbe) -> Option<(bool, String)> {
+    let rand_image = p
+        .get(RANDOM)
+        .is_some_and(|r| r.status == 200 && r.ctype.to_ascii_lowercase().starts_with("image/"));
+    for (path, at) in [("/", "/"), (RANDOM, "random path")] {
+        let Some(r) = p.get(path) else {
+            continue;
+        };
+        if r.body.len() > COLLECTOR_MAX_BYTES || html(Some(r)) {
+            continue;
+        }
+        let body = lower(r);
+        let text = String::from_utf8_lossy(&body);
+        let text = text.trim();
+        let shown = crate::battery::head(text.as_bytes(), 60);
+        if let Some(m) = COLLECTOR_STRONG.iter().find(|m| text.contains(*m)) {
+            return Some((true, format!("{at} {} says {m}: {shown}", r.status)));
+        }
+        if r.status == 204 && r.body.is_empty() {
+            return Some((false, format!("{at} empty 204")));
+        }
+        if text == "ok" || COLLECTOR_WEAK.iter().any(|m| text.contains(m)) {
+            return Some((false, format!("{at} {} {shown}", r.status)));
+        }
+        if r.status == 405 {
+            return Some((false, format!("{at} 405, GET not allowed")));
+        }
+        if path == "/" && !rand_image && tiny_gif(r) {
+            return Some((false, format!("/ answers a {} byte gif", r.body.len())));
+        }
+    }
+    let empty = |path: &str| {
+        p.get(path)
+            .filter(|r| r.body.is_empty() && matches!(r.status, 200 | 404))
+            .map(|r| r.status)
+    };
+    if let (Some(a), Some(b)) = (empty("/"), empty(RANDOM)) {
+        return Some((
+            false,
+            format!("/ answers an empty {a} and the random path an empty {b}"),
+        ));
+    }
+    None
+}
+
+fn tiny_gif(r: &Resp) -> bool {
+    r.status == 200
+        && r.body.len() <= PIXEL_MAX_BYTES
+        && r.ctype.to_ascii_lowercase().starts_with("image/gif")
+}
+
 fn own_ui(product: &str, title: &str) -> bool {
     let t = title.to_ascii_lowercase();
     OWN_UI
@@ -280,11 +356,35 @@ pub fn classify(p: &HostProbe, regdom: &str) -> Vec<Hit> {
     let main = main_site(p, regdom);
     let landing = landing_title(p);
     let skipped = stella_core::token::skipped(sub);
-    products(p)
+    let found = products(p);
+    if found.is_empty() {
+        return collector(p)
+            .filter(|(strong, _)| !skipped && (*strong || stella_core::token::tracking(sub)))
+            .map(|(_, evidence)| Hit {
+                product: COLLECTOR,
+                evidence: format!("{evidence}; collector-like reply, no known product"),
+                verdict: REVIEW,
+            })
+            .into_iter()
+            .collect();
+    }
+    found
         .into_iter()
         .map(|(product, evidence)| {
             let (verdict, evidence) = if product == "pixel" {
-                (DROP, evidence)
+                let beacon = !skipped
+                    && !main
+                    && app.is_none()
+                    && p.get(RANDOM).is_some_and(tiny_gif)
+                    && stella_core::token::tracking(sub);
+                if beacon {
+                    (
+                        REVIEW,
+                        format!("{evidence}; tiny gif on every path under a tracking name"),
+                    )
+                } else {
+                    (DROP, evidence)
+                }
             } else if skipped {
                 (DROP, format!("{evidence}; staging or dev name"))
             } else if main && !landing.as_deref().is_some_and(|t| own_ui(product, t)) {
@@ -359,6 +459,49 @@ mod tests {
             .into_iter()
             .map(|h| (h.product, h.verdict))
             .collect()
+    }
+
+    #[test]
+    fn collector_replies_only_reach_review() {
+        let strong = probe(
+            "edge.shop.com",
+            &[
+                (
+                    "/",
+                    resp(
+                        400,
+                        "application/json",
+                        "",
+                        "{\"error\":\"missing payload\"}",
+                    ),
+                ),
+                (RANDOM, resp(404, "text/plain", "", "")),
+            ],
+        );
+        assert_eq!(products_of(&strong, "edge"), [(COLLECTOR, REVIEW)]);
+        let weak = |sub: &str| {
+            probe(
+                &format!("{sub}.shop.com"),
+                &[
+                    ("/", resp(204, "", "", "")),
+                    (RANDOM, resp(204, "", "", "")),
+                ],
+            )
+        };
+        assert_eq!(
+            products_of(&weak("events"), "events"),
+            [(COLLECTOR, REVIEW)]
+        );
+        assert!(products_of(&weak("api"), "api").is_empty());
+        assert!(products_of(&weak("events-staging"), "events-staging").is_empty());
+        let page = probe(
+            "events.shop.com",
+            &[(
+                "/",
+                resp(200, "text/html", "", "<html><title>ok</title></html>"),
+            )],
+        );
+        assert!(products_of(&page, "events").is_empty());
     }
 
     #[test]
