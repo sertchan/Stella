@@ -17,7 +17,7 @@ Identifying and blocking a domain represents only the initial step. Because Stel
 
 Beyond identifying novel domains, Stella also utilizes existing list entries as seeds, demonstrating high efficacy in surfacing associated variants.
 
-During false-positive auditing, Stella examines all domains across existing lists alongside its own detections, identifying additional domains that disrupt websites and applications due to the same underlying cause and behavioral pattern.
+During false-positive auditing, Stella examines all domains across existing lists alongside its own detections, identifying additional domains that breaks websites and applications due to the same underlying cause and behavioral pattern.
 
 Stella is an actively maintained project that places substantial weight on user feedback, as a single false positive can reveal an algorithmic flaw. Once the underlying issue is addressed, all domains blocked for the same reason can be identified and removed from the lists.
 
