@@ -20,5 +20,3 @@ Beyond identifying novel domains, Stella also utilizes existing list entries as 
 During false-positive auditing, Stella examines all domains across existing lists alongside its own detections, identifying additional domains that breaks websites and applications due to the same underlying cause and behavioral pattern.
 
 Stella is an actively maintained project that places substantial weight on user feedback, as a single false positive can reveal an algorithmic flaw. Once the underlying issue is addressed, all domains blocked for the same reason can be identified and removed from the lists.
-
-Stella means 'star' in Latin, and the designation is deliberate. The project aims to illuminate obscure areas of the internet prior to encounter and serve as a guiding reference.
