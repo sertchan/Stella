@@ -16,6 +16,9 @@ pub const REFUSED: u8 = 5;
 const EDNS_UDP_SIZE: u16 = 1232;
 const EDNS_DO: u32 = 0x8000;
 const MAX_POINTER_HOPS: usize = 64;
+const ECS_OPTION: u16 = 8;
+const ECS_FAMILY_V4: u16 = 1;
+const ECS_PREFIX: u8 = 24;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Data {
@@ -122,6 +125,25 @@ pub fn encode_query(
         buf.extend_from_slice(&EDNS_DO.to_be_bytes());
         buf.extend_from_slice(&0u16.to_be_bytes());
     }
+    true
+}
+
+pub fn add_ecs(buf: &mut Vec<u8>, subnet: [u8; 3]) -> bool {
+    if buf.len() < 12 || buf[10..12] != [0, 0] {
+        return false;
+    }
+    buf[10..12].copy_from_slice(&1u16.to_be_bytes());
+    buf.push(0);
+    buf.extend_from_slice(&OPT.to_be_bytes());
+    buf.extend_from_slice(&EDNS_UDP_SIZE.to_be_bytes());
+    buf.extend_from_slice(&0u32.to_be_bytes());
+    buf.extend_from_slice(&11u16.to_be_bytes());
+    buf.extend_from_slice(&ECS_OPTION.to_be_bytes());
+    buf.extend_from_slice(&7u16.to_be_bytes());
+    buf.extend_from_slice(&ECS_FAMILY_V4.to_be_bytes());
+    buf.push(ECS_PREFIX);
+    buf.push(0);
+    buf.extend_from_slice(&subnet);
     true
 }
 
@@ -295,6 +317,18 @@ mod tests {
             true
         ));
         assert_eq!(parse(&q).expect("parse").qname, "\\000.example.com");
+    }
+
+    #[test]
+    fn adds_client_subnet() {
+        let mut q = Vec::new();
+        encode_query(&mut q, 1, "a.com", A, true, false);
+        let plain = q.len();
+        assert!(add_ecs(&mut q, [81, 2, 69]));
+        assert_eq!(q[11], 1);
+        assert_eq!(&q[plain + 11..], &[0, 8, 0, 7, 0, 1, 24, 0, 81, 2, 69]);
+        assert!(!add_ecs(&mut q, [1, 2, 3]));
+        assert_eq!(parse(&q).expect("parse").qname, "a.com");
     }
 
     #[test]
