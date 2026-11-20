@@ -10,10 +10,16 @@ pub struct Args {
         help = "Skip addresses shared by more hosts than this"
     )]
     max_ip: i64,
+    #[arg(
+        long,
+        help = "Pivot from REVIEW hits too, so certificates and addresses of behaviour hits are followed"
+    )]
+    with_review: bool,
 }
 
 pub fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
-    let p = stella_sources::pivot::collect(&ctx.store.conn, &ctx.psl, args.max_ip)?;
+    let p =
+        stella_sources::pivot::collect(&ctx.store.conn, &ctx.psl, args.max_ip, args.with_review)?;
     let w = ctx.store.writer()?;
     let mut out = Out::new();
     for (host, addr, via) in &p.neighbours {
