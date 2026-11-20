@@ -86,6 +86,10 @@ impl Psl {
         self.regdom(name).unwrap_or(name)
     }
 
+    pub fn listed_tld(&self, name: &str) -> bool {
+        has(&self.rules, name.rsplit('.').next().unwrap_or(name), false)
+    }
+
     pub fn icann_regdom_or_self<'a>(&self, name: &'a str) -> &'a str {
         self.registrable(name, true).unwrap_or(name)
     }
