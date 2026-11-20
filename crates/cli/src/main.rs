@@ -15,6 +15,7 @@ mod recheck;
 mod resolve;
 mod review;
 mod source;
+mod stats;
 mod twins;
 mod zone;
 
@@ -71,6 +72,8 @@ enum Cmd {
         about = "Lower hits named in HaGeZi allow or deny issues or excepted by other lists, after syncing them"
     )]
     Audit(audit::Args),
+    #[command(about = "Names, resolutions, probes and hits per source")]
+    Stats,
     #[command(about = "Keep candidates that answer exactly like their listed seed or sibling")]
     Twins(twins::Args),
     #[command(about = "List hits with their evidence")]
@@ -105,6 +108,7 @@ fn main() -> Result<()> {
             Cmd::Hunt(a) => hunt::run(&mut ctx, a).await,
             Cmd::Allow(a) => allow::run(&mut ctx, a),
             Cmd::Audit(a) => audit::run(&mut ctx, a).await,
+            Cmd::Stats => stats::run(&ctx),
             Cmd::Twins(a) => twins::run(&mut ctx, a).await,
             Cmd::Review(a) => review::review(&ctx, a),
             Cmd::Export(a) => review::export(&ctx, a),
