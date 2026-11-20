@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::sync::{Semaphore, mpsc};
 use tokio::time::Instant;
 
-const CONSENT_JS: &str = include_str!("consent.js");
+pub(crate) const CONSENT_JS: &str = include_str!("consent.js");
 const NOISE: &[&str] = &[
     "accounts.google.com",
     "update.googleapis.com",
@@ -20,7 +20,7 @@ const NOISE: &[&str] = &[
     "android.clients.google.com",
 ];
 const MIN_FREE_BYTES: u64 = 1536 * 1024 * 1024;
-const FIRST_CONSENT: Duration = Duration::from_secs(8);
+pub(crate) const FIRST_CONSENT: Duration = Duration::from_secs(8);
 const CONSENT_GAP: Duration = Duration::from_secs(3);
 
 #[derive(Clone)]
@@ -59,7 +59,7 @@ fn mem_available() -> u64 {
         .map_or(u64::MAX, |kb| kb * 1024)
 }
 
-async fn wait_for_memory() {
+pub(crate) async fn wait_for_memory() {
     while mem_available() < MIN_FREE_BYTES {
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
