@@ -11,7 +11,7 @@ Stella avoids reliance on name-based domain guessing, which is a crude heuristic
 
 Instead, Stella evaluates behavioral patterns. Although domains may be modified or newly registered, emerging and evolving domains tend to retain prior operational habits.
 
-Stella frequently employs attack surface discovery methods established in cybersecurity. It is particularly effective at mitigating newly provisioned domains, often prior to active deployment, enabling detection and blocking before such domains appear in the telemetry logs of millions of users.
+Stella frequently employs attack surface discovery methods established in cybersecurity. It is particularly effective at mitigating newly provisioned domains, often prior to active deployment, enabling detection and blocking before such domains appear in the resolver logs of millions of users.
 
 Identifying and blocking a domain represents only the initial step. Because Stella supplies blocklists utilized by millions of users worldwide, it maintains comparable rigor with domain variants, effectively uncovering regional and modified variants within a tracker family.
 
