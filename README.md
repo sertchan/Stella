@@ -1,37 +1,24 @@
-<img width="3840" height="2160" src="https://github.com/user-attachments/assets/4d9e0218-3413-4854-9780-f49853d450b6" />
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="3840" height="2160" viewBox="0 0 3840 2160">
-  <defs>
-    <linearGradient id="metal" gradientUnits="userSpaceOnUse"
-                    x1="1180" y1="340" x2="2660" y2="1820">
-      <stop offset="0.00" stop-color="#4A050A"/>
-      <stop offset="0.12" stop-color="#8E0F16"/>
-      <stop offset="0.26" stop-color="#D32027"/>
-      <stop offset="0.37" stop-color="#FF7B74"/>
-      <stop offset="0.46" stop-color="#E02B2E"/>
-      <stop offset="0.60" stop-color="#9B1017"/>
-      <stop offset="0.74" stop-color="#D9262C"/>
-      <stop offset="0.88" stop-color="#7A0A10"/>
-      <stop offset="1.00" stop-color="#45040A"/>
-    </linearGradient>
-    <linearGradient id="sheen" gradientUnits="userSpaceOnUse"
-                    x1="1500" y1="300" x2="2100" y2="1400">
-      <stop offset="0.00" stop-color="#FFFFFF" stop-opacity="0.42"/>
-      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0.08"/>
-      <stop offset="1.00" stop-color="#FFFFFF" stop-opacity="0"/>
-    </linearGradient>
-  </defs>
-  <rect width="3840" height="2160" fill="#FFFFFF"/>
-  <g>
-    <polygon fill="url(#metal)" stroke="#3E0308" stroke-width="4" points="
-      1920,260 1985.06,922.94 2163.95,836.05 2077.06,1014.94
-      2740,1080 2077.06,1145.06 2163.95,1323.95 1985.06,1237.06
-      1920,1900 1854.94,1237.06 1676.05,1323.95 1762.94,1145.06
-      1100,1080 1762.94,1014.94 1676.05,836.05 1854.94,922.94"/>
-    <polygon fill="url(#sheen)" points="
-      1920,260 1985.06,922.94 2163.95,836.05 2077.06,1014.94
-      2740,1080 2077.06,1145.06 2163.95,1323.95 1985.06,1237.06
-      1920,1900 1854.94,1237.06 1676.05,1323.95 1762.94,1145.06
-      1100,1080 1762.94,1014.94 1676.05,836.05 1854.94,922.94"/>
-  </g>
-</svg>
+<img width="3840" height="2160" alt="Stella" src="https://github.com/user-attachments/assets/4d9e0218-3413-4854-9780-f49853d450b6" />
+
+> [!CAUTION]
+> Stella is currently in beta and under active development. Detection algorithms, features, and outputs may change, and occasional false positives can occur.
+
+## Stella: Behavioral Domain Detection Engine
+
+Stella was created to turn years of ongoing internet scanning for Content Blockers and DNS Blocklists into an open, auditable, accountable, and well-documented infrastructure.
+
+Stella is a project developed specifically to find ads, tracking, pop-up ads, telemetry, and self-hosted telemetry domains.
+
+Stella avoids relying on name-based domain guessing, a rough heuristic that creates too many false positives. With thousands of organizations, independent developers, and millions of domains on the web, modeling naming patterns offers a decent baseline, though it stays far from high precision.
+
+Instead, Stella looks at behavioral patterns. Even when domains are modified or newly registered, they tend to keep their previous operational habits.
+
+Stella frequently uses attack surface discovery techniques from cybersecurity. It is especially effective at catching newly provisioned domains, often before they go live, making it possible to detect and block them before they ever show up in the resolver logs of millions of users.
+
+Finding and blocking a domain is only the first step. Because millions of users worldwide rely on Stella's blocklists, it applies the same rigor to domain variants, reliably uncovering regional and modified variants within a tracker family.
+
+On top of finding new domains, Stella also uses existing list entries as seeds, proving very effective at surfacing related variants.
+
+During false-positive audits, Stella checks all domains across existing lists alongside its own detections to spot other domains that break websites and apps for the same underlying reason and behavioral pattern.
+
+Stella is an actively maintained project that takes user feedback seriously, since a single false positive can expose a flaw in the algorithm. Once the underlying issue is fixed, every domain blocked for that same reason can be found and removed from the lists.
