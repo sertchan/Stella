@@ -13,7 +13,9 @@ static HOSTS: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 pub fn url(id: &str) -> String {
-    if id.starts_with("GTM-") {
+    if id.starts_with(crate::vendors::PIXEL_PREFIX) {
+        crate::vendors::pixel_config_url(id)
+    } else if id.starts_with("GTM-") {
         format!("https://www.googletagmanager.com/gtm.js?id={id}")
     } else {
         format!("https://www.googletagmanager.com/gtag/js?id={id}")
@@ -50,6 +52,12 @@ pub async fn fetch(client: &reqwest::Client, id: &str) -> Fetched {
             continue;
         };
         match page.status {
+            200 if id.starts_with(crate::vendors::PIXEL_PREFIX) => {
+                return Fetched::Found(Container {
+                    sgtm: crate::vendors::openbridge_hosts(&page.body),
+                    hosts: Vec::new(),
+                });
+            }
             200 => return Fetched::Found(parse(&page.body)),
             400 | 404 => return Fetched::Missing,
             _ => {}

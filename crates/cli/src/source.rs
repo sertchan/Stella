@@ -269,12 +269,17 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
                     }
                 };
                 fetched += 1;
+                let kind = if id.starts_with(stella_sources::vendors::PIXEL_PREFIX) {
+                    "openbridge"
+                } else {
+                    "sgtm"
+                };
                 for h in &r.sgtm {
                     sgtm += 1;
-                    out.row(&[h, "sgtm", &id]);
+                    out.row(&[h, kind, &id]);
                     w.send(Row::Origin {
                         host: h.clone(),
-                        source: "sgtm".into(),
+                        source: kind.into(),
                         detail: id.clone(),
                     });
                 }
