@@ -83,7 +83,10 @@ pub async fn mine(client: &reqwest::Client, domain: &str) -> Option<Finds> {
     }
     let page = page?;
     let mut f = Finds {
-        ids: ids(&page.body),
+        ids: ids(&page.body)
+            .into_iter()
+            .chain(crate::vendors::pixel_ids(&page.body))
+            .collect(),
         inline: inline(&page.body),
         headers: Vec::new(),
     };
