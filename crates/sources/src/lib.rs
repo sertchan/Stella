@@ -3,6 +3,7 @@ pub mod container;
 pub mod ct;
 pub mod labels;
 pub mod pivot;
+pub mod scripts;
 pub mod site;
 pub mod toplist;
 pub mod variants;
