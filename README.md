@@ -1,37 +1,22 @@
-<img width="3840" height="2160" src="https://github.com/user-attachments/assets/4d9e0218-3413-4854-9780-f49853d450b6" />
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="3840" height="2160" viewBox="0 0 3840 2160">
-  <defs>
-    <linearGradient id="metal" gradientUnits="userSpaceOnUse"
-                    x1="1180" y1="340" x2="2660" y2="1820">
-      <stop offset="0.00" stop-color="#4A050A"/>
-      <stop offset="0.12" stop-color="#8E0F16"/>
-      <stop offset="0.26" stop-color="#D32027"/>
-      <stop offset="0.37" stop-color="#FF7B74"/>
-      <stop offset="0.46" stop-color="#E02B2E"/>
-      <stop offset="0.60" stop-color="#9B1017"/>
-      <stop offset="0.74" stop-color="#D9262C"/>
-      <stop offset="0.88" stop-color="#7A0A10"/>
-      <stop offset="1.00" stop-color="#45040A"/>
-    </linearGradient>
-    <linearGradient id="sheen" gradientUnits="userSpaceOnUse"
-                    x1="1500" y1="300" x2="2100" y2="1400">
-      <stop offset="0.00" stop-color="#FFFFFF" stop-opacity="0.42"/>
-      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0.08"/>
-      <stop offset="1.00" stop-color="#FFFFFF" stop-opacity="0"/>
-    </linearGradient>
-  </defs>
-  <rect width="3840" height="2160" fill="#FFFFFF"/>
-  <g>
-    <polygon fill="url(#metal)" stroke="#3E0308" stroke-width="4" points="
-      1920,260 1985.06,922.94 2163.95,836.05 2077.06,1014.94
-      2740,1080 2077.06,1145.06 2163.95,1323.95 1985.06,1237.06
-      1920,1900 1854.94,1237.06 1676.05,1323.95 1762.94,1145.06
-      1100,1080 1762.94,1014.94 1676.05,836.05 1854.94,922.94"/>
-    <polygon fill="url(#sheen)" points="
-      1920,260 1985.06,922.94 2163.95,836.05 2077.06,1014.94
-      2740,1080 2077.06,1145.06 2163.95,1323.95 1985.06,1237.06
-      1920,1900 1854.94,1237.06 1676.05,1323.95 1762.94,1145.06
-      1100,1080 1762.94,1014.94 1676.05,836.05 1854.94,922.94"/>
-  </g>
-</svg>
+<img width="3840" height="2160" alt="Stella" src="https://github.com/user-attachments/assets/4d9e0218-3413-4854-9780-f49853d450b6" />
+
+> [!CAUTION]
+> Stella is currently in beta and under active development. Detection algorithms, features, and outputs may change, and occasional false positives can occur.
+
+The Stella project was built to bring years of ongoing internet scanning for developing Content Blocker and DNS Blocklist projects into an auditable, accountable, well-documented, and completely open and free structure.
+
+Stella avoids relying on name-based domain guessing. Guessing by name is a crude method that can produce a large number of false positives. Given the thousands of companies, independent developers, and millions of domains worldwide, predicting how people name their domains offers a decent baseline, yet falls far short of high accuracy.
+
+Instead, Stella analyzes behavior. It is meticulous and obsessive. Domains may change and new ones may be created, yet new and changing domains still carry on their old habits.
+
+Stella frequently uses attack surface discovery techniques familiar from cybersecurity. It excels at neutralizing domains as soon as they are created, often before they are even put to use. This allows a domain to be discovered and blocked before it ever appears in the logs of millions of people.
+
+Finding and blocking a domain is only the beginning. Because Stella feeds lists used by millions of people around the world, it is equally rigorous about variants and excels at uncovering all country-specific and modified variants of a tracker family.
+
+Beyond finding new domains, Stella also uses domains already present in our lists as seeds, proving highly effective at discovering their variants.
+
+When scanning for false positives, Stella inspects every domain across our lists in addition to its own findings, detecting other domains that break websites and applications due to the same cause and behavioral pattern.
+
+Stella is an actively developed project that places great importance on user feedback, as a single false positive can expose a flaw in the algorithm. Once that flaw is resolved, every domain blocked for the same reason can be located and removed from our lists.
+
+*Stella* means "star" in Latin, and this name is no coincidence. We hope it illuminates the dark corners of the internet before we ever reach them and guides our way.
