@@ -68,6 +68,32 @@ enum Cmd {
         #[arg(long, help = "Read zones from stdin instead of the top site list")]
         stdin_zones: bool,
     },
+    #[command(
+        about = "Region, country, cloud region and shard number variants of hosts, as candidate and seed"
+    )]
+    Variants {
+        #[arg(
+            long,
+            help = "Seed with every reference list host instead of the hosts on stdin"
+        )]
+        from_known: bool,
+        #[arg(
+            long,
+            help = "Try label and brand on country domains instead (sgtm.brand.de to sgtm.brand.fr)"
+        )]
+        cctld: bool,
+        #[arg(long, default_value_t = 40, help = "Highest shard number to try")]
+        max_num: u32,
+    },
+    #[command(about = "Zones where reference lists include subdomains but not the zone itself")]
+    PartialZones,
+    #[command(
+        about = "Tracking labels from the reference lists tried on partly listed zones, as candidate and seed"
+    )]
+    Siblings {
+        #[arg(long, default_value_t = 60, help = "Most frequent labels to use")]
+        top: usize,
+    },
 }
 
 pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
@@ -313,6 +339,68 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
                 learned.len(),
                 sites.len(),
                 cands.len()
+            );
+        }
+        Cmd::Variants {
+            from_known,
+            cctld,
+            max_num,
+        } => {
+            let seeds: Vec<String> = if from_known {
+                ctx.known().domains().map(str::to_string).collect()
+            } else {
+                stdin_names()
+            };
+            let known = ctx.known();
+            let mut out = Out::new();
+            let mut n = 0usize;
+            for seed in &seeds {
+                let mut emit = |c: String| {
+                    if stella_core::name::normalize(&c).is_some() && !known.contains(&c) {
+                        n += 1;
+                        out.row(&[&c, seed]);
+                    }
+                };
+                if cctld {
+                    stella_sources::variants::cctld_twins(seed)
+                        .into_iter()
+                        .for_each(&mut emit);
+                } else {
+                    stella_sources::variants::variants(seed, max_num, &mut emit);
+                }
+            }
+            eprintln!("seeds={} candidates={n}", seeds.len());
+        }
+        Cmd::PartialZones => {
+            let zones = stella_sources::variants::partial_zones(ctx.known(), &ctx.psl);
+            let mut out = Out::new();
+            for z in &zones {
+                out.row(&[&z.zone, &z.listed.len().to_string(), &z.listed[0]]);
+            }
+            eprintln!("zones={}", zones.len());
+        }
+        Cmd::Siblings { top } => {
+            let known = ctx.known();
+            let learned = stella_sources::variants::learned_labels(known, &ctx.psl, top);
+            let zones = stella_sources::variants::partial_zones(known, &ctx.psl);
+            let mut out = Out::new();
+            let mut n = 0usize;
+            for z in &zones {
+                let Some(seed) = stella_sources::variants::sibling_seed(&z.listed) else {
+                    continue;
+                };
+                for (l, _) in &learned {
+                    let c = format!("{l}.{}", z.zone);
+                    if !known.contains(&c) {
+                        n += 1;
+                        out.row(&[&c, seed]);
+                    }
+                }
+            }
+            eprintln!(
+                "labels={} zones={} candidates={n}",
+                learned.len(),
+                zones.len()
             );
         }
     }
