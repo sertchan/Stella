@@ -3,7 +3,7 @@
 > [!CAUTION]
 > Stella is currently in beta and under active development. Detection algorithms, features, and outputs may change, and occasional false positives can occur.
 
-## Project Stella: Behavioral Detection for Content and DNS
+## Project Stella: Behavioral Detection for DNS-Blocklists
 
 The Stella project was established to integrate years of ongoing internet scanning for the development of Content Blocker and DNS Blocklist initiatives into an auditable, accountable, well-documented, and openly accessible framework.
 
