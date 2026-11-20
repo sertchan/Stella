@@ -76,11 +76,22 @@ fn signature(p: &HostProbe) -> Option<String> {
 }
 
 pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+    verify(ctx, &args.dns, &args.probe, stdin_rows())
+        .await
+        .map(|_| ())
+}
+
+pub async fn verify(
+    ctx: &mut Ctx,
+    dns: &DnsArgs,
+    probe: &ProbeArgs,
+    rows: Vec<Vec<String>>,
+) -> Result<usize> {
     let started = Instant::now();
     let known = ctx.known();
     let mut pairs: Vec<(String, Option<String>)> = Vec::new();
     let mut seen = FxHashSet::default();
-    for row in stdin_rows() {
+    for row in rows {
         let Some(c) = row.first().and_then(|h| stella_core::name::normalize(h)) else {
             continue;
         };
@@ -113,7 +124,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     names.sort_unstable();
     names.dedup();
     let w = ctx.store.writer()?;
-    let res = pipeline::resolve(ctx, &w, &args.dns.config(), names, true).await?;
+    let res = pipeline::resolve(ctx, &w, &dns.config(), names, true).await?;
     let mut addr: FxHashMap<String, (IpAddr, bool)> = FxHashMap::default();
     for n in &res {
         if let Some(a) = n.res.addrs.iter().find(|a| chase::public(a)) {
@@ -138,11 +149,11 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             }
         }
     }
-    let mut prober = args.probe.prober();
+    let mut prober = probe.prober();
     prober.cap = SIGNATURE_CAP;
     let mut sig: FxHashMap<String, String> = FxHashMap::default();
     let mut app: FxHashMap<String, String> = FxHashMap::default();
-    battery::probe_all(&prober, targets, args.probe.conc, |p| {
+    battery::probe_all(&prober, targets, probe.conc, |p| {
         if let Some(s) = signature(&p) {
             sig.insert(p.host.clone(), s);
         }
@@ -157,7 +168,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         .collect();
     let covered = pipeline::covered_elsewhere(
         ctx,
-        &args.dns.config(),
+        &dns.config(),
         same.iter().map(|(c, _)| c.clone()).collect(),
     )
     .await?;
@@ -213,7 +224,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         sig.len(),
         started.elapsed().as_secs_f64()
     );
-    Ok(())
+    Ok(picks)
 }
 
 fn live_count(addr: &FxHashMap<String, (IpAddr, bool)>, pairs: &[(String, String)]) -> usize {

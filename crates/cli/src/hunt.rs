@@ -12,15 +12,15 @@ use stella_probe::battery::Battery;
 #[derive(clap::Args)]
 pub struct Args {
     #[command(flatten)]
-    dns: DnsArgs,
+    pub dns: DnsArgs,
     #[command(flatten)]
-    probe: ProbeArgs,
+    pub probe: ProbeArgs,
     #[arg(
         long,
         default_value = "input",
         help = "Origin label recorded for the names on stdin"
     )]
-    tag: String,
+    pub tag: String,
     #[arg(
         long,
         default_value_t = 5,
@@ -64,6 +64,11 @@ struct Round {
 }
 
 pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+    let input = stdin_names();
+    hunt(ctx, &args, input).await.map(|_| ())
+}
+
+pub async fn hunt(ctx: &mut Ctx, args: &Args, input: Vec<String>) -> Result<usize> {
     let started = Instant::now();
     let w = ctx.store.writer()?;
     let cfg = args.dns.config();
@@ -74,8 +79,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         ctx.store.resolved()?
     };
     let mut probed = ctx.store.probed()?;
-    let input = stdin_names();
-    for n in &input {
+    for n in input.iter().filter(|_| !args.tag.is_empty()) {
         w.send(Row::Origin {
             host: n.clone(),
             source: args.tag.clone(),
@@ -210,5 +214,5 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     drop(out);
     w.finish()?;
     eprintln!("picks={picks} secs={:.1}", started.elapsed().as_secs_f64());
-    Ok(())
+    Ok(picks)
 }
