@@ -1,6 +1,7 @@
 mod allow;
 mod apk;
 mod audit;
+mod cname;
 mod crawl;
 mod ctx;
 mod feeds;
