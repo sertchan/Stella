@@ -12,6 +12,7 @@ mod recheck;
 mod resolve;
 mod review;
 mod source;
+mod twins;
 mod zone;
 
 use anyhow::Result;
@@ -63,6 +64,8 @@ enum Cmd {
     Hunt(hunt::Args),
     #[command(about = "Hosts that must never be picked, with the reason")]
     Allow(allow::Args),
+    #[command(about = "Keep candidates that answer exactly like their listed seed or sibling")]
+    Twins(twins::Args),
     #[command(about = "List hits with their evidence")]
     Review(review::ReviewArgs),
     #[command(about = "Print picked hosts that no reference list covers")]
@@ -94,6 +97,7 @@ fn main() -> Result<()> {
             Cmd::Pivot(a) => pivot::run(&mut ctx, a),
             Cmd::Hunt(a) => hunt::run(&mut ctx, a).await,
             Cmd::Allow(a) => allow::run(&mut ctx, a),
+            Cmd::Twins(a) => twins::run(&mut ctx, a).await,
             Cmd::Review(a) => review::review(&ctx, a),
             Cmd::Export(a) => review::export(&ctx, a),
         }
