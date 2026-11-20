@@ -3,6 +3,8 @@
 > [!CAUTION]
 > Stella is currently in beta and under active development. Detection algorithms, features, and outputs may change, and occasional false positives can occur.
 
+## Who is Stella, and what is its purpose?
+
 The Stella project was built to bring years of ongoing internet scanning for developing Content Blocker and DNS Blocklist projects into an auditable, accountable, well-documented, and completely open and free structure.
 
 Stella avoids relying on name-based domain guessing. Guessing by name is a crude method that can produce a large number of false positives. Given the thousands of companies, independent developers, and millions of domains worldwide, predicting how people name their domains offers a decent baseline, yet falls far short of high accuracy.
