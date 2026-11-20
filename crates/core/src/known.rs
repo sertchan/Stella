@@ -35,6 +35,10 @@ impl Known {
         }
     }
 
+    pub fn domains(&self) -> impl Iterator<Item = &str> {
+        self.map.keys().map(AsRef::as_ref)
+    }
+
     pub fn len(&self) -> usize {
         self.map.len()
     }
