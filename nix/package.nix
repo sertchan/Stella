@@ -30,6 +30,6 @@ in
     '';
     meta = {
       mainProgram = "stella";
-      license = pkgs.lib.licenses.gpl3Plus;
+      license = pkgs.lib.licenses.agpl3Plus;
     };
   }
