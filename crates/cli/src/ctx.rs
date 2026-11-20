@@ -86,20 +86,31 @@ pub fn stdin_rows() -> Vec<Vec<String>> {
         .collect()
 }
 
-pub struct Out(BufWriter<Stdout>);
+static QUIET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn quiet(on: bool) {
+    QUIET.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub struct Out(Option<BufWriter<Stdout>>);
 
 impl Out {
     pub fn new() -> Self {
-        Self(BufWriter::with_capacity(1 << 16, std::io::stdout()))
+        let quiet = QUIET.load(std::sync::atomic::Ordering::Relaxed);
+        Self((!quiet).then(|| BufWriter::with_capacity(1 << 16, std::io::stdout())))
     }
 
     pub fn row(&mut self, cols: &[&str]) {
-        let _ = writeln!(self.0, "{}", cols.join("\t"));
+        if let Some(w) = self.0.as_mut() {
+            let _ = writeln!(w, "{}", cols.join("\t"));
+        }
     }
 }
 
 impl Drop for Out {
     fn drop(&mut self) {
-        let _ = self.0.flush();
+        if let Some(w) = self.0.as_mut() {
+            let _ = w.flush();
+        }
     }
 }
