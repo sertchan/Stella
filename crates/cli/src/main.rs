@@ -1,6 +1,7 @@
 mod allow;
 mod apk;
 mod audit;
+mod campaign;
 mod cname;
 mod crawl;
 mod ctx;
@@ -72,6 +73,10 @@ enum Cmd {
         about = "Lower hits named in HaGeZi allow or deny issues or excepted by other lists, after syncing them"
     )]
     Audit(audit::Args),
+    #[command(
+        about = "Run one full discovery round: sync, expand new picks, hunt, twins, vendor CNAMEs, recheck and audit"
+    )]
+    Campaign(campaign::Args),
     #[command(about = "Names, resolutions, probes and hits per source")]
     Stats,
     #[command(about = "Keep candidates that answer exactly like their listed seed or sibling")]
@@ -108,6 +113,7 @@ fn main() -> Result<()> {
             Cmd::Hunt(a) => hunt::run(&mut ctx, a).await,
             Cmd::Allow(a) => allow::run(&mut ctx, a),
             Cmd::Audit(a) => audit::run(&mut ctx, a).await,
+            Cmd::Campaign(a) => campaign::run(&mut ctx, a).await,
             Cmd::Stats => stats::run(&ctx),
             Cmd::Twins(a) => twins::run(&mut ctx, a).await,
             Cmd::Review(a) => review::review(&ctx, a),

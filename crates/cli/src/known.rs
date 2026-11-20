@@ -49,3 +49,16 @@ pub async fn sync(ctx: &Ctx) -> Result<()> {
     }
     Ok(())
 }
+
+pub fn age(ctx: &Ctx) -> Option<std::time::Duration> {
+    let path = ctx
+        .paths
+        .known()
+        .join(format!("{}-onlydomains.txt", KNOWN_LISTS.first()?));
+    std::fs::metadata(path)
+        .ok()?
+        .modified()
+        .ok()?
+        .elapsed()
+        .ok()
+}

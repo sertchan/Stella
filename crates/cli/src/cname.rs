@@ -245,3 +245,16 @@ pub fn matches(ctx: &Ctx) -> Result<Vec<(String, String)>> {
     );
     Ok(found)
 }
+
+pub fn learned_age(ctx: &Ctx) -> Option<i64> {
+    let at: i64 = ctx
+        .store
+        .rows("SELECT max(at) FROM done WHERE kind = 'cname-learn'")
+        .ok()?
+        .into_iter()
+        .next()?
+        .pop()?
+        .parse()
+        .ok()?;
+    Some(stella_core::now() - at)
+}
