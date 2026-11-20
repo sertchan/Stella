@@ -54,6 +54,19 @@ enum Cmd {
         min: usize,
         #[arg(long, default_value = "tranco", help = "Top site list")]
         list: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Use these labels instead of learning them, comma separated"
+        )]
+        labels: Vec<String>,
+        #[arg(
+            long,
+            help = "Learn labels from the reference lists instead of the picks"
+        )]
+        from_known: bool,
+        #[arg(long, help = "Read zones from stdin instead of the top site list")]
+        stdin_zones: bool,
     },
 }
 
@@ -259,18 +272,39 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
                 started.elapsed().as_secs_f64()
             );
         }
-        Cmd::Labels { top, min, list } => {
-            let learned = labels::learn(&ctx.store.conn, &ctx.psl, min)?;
-            let c = client::build(&Options::default())?;
-            let path = toplist::fetch(&c, &list, &ctx.paths.cache()).await?;
-            let mut sites: Vec<String> = toplist::read(&path, top)?
-                .into_iter()
-                .map(|(_, n)| ctx.psl.regdom_or_self(&n).to_string())
-                .collect();
+        Cmd::Labels {
+            top,
+            min,
+            list,
+            labels: fixed,
+            from_known,
+            stdin_zones,
+        } => {
+            let learned: Vec<(String, usize)> = if !fixed.is_empty() {
+                fixed.into_iter().map(|l| (l, 0)).collect()
+            } else if from_known {
+                stella_sources::variants::learned_labels(ctx.known(), &ctx.psl, 60)
+            } else {
+                labels::learn(&ctx.store.conn, &ctx.psl, min)?
+            };
+            let mut sites: Vec<String> = if stdin_zones {
+                stdin_names()
+            } else {
+                let c = client::build(&Options::default())?;
+                let path = toplist::fetch(&c, &list, &ctx.paths.cache()).await?;
+                toplist::read(&path, top)?
+                    .into_iter()
+                    .map(|(_, n)| ctx.psl.regdom_or_self(&n).to_string())
+                    .collect()
+            };
             sites.sort_unstable();
             sites.dedup();
+            let known = ctx.known();
             let mut out = Out::new();
-            let cands = labels::candidates(&learned, &sites);
+            let cands: Vec<String> = labels::candidates(&learned, &sites)
+                .into_iter()
+                .filter(|n| !known.contains(n))
+                .collect();
             for n in &cands {
                 out.row(&[n]);
             }
