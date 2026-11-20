@@ -38,6 +38,7 @@ pub struct Query {
     pub server: Option<SocketAddr>,
     pub rd: bool,
     pub dnssec: bool,
+    pub subnet: Option<[u8; 3]>,
 }
 
 impl Query {
@@ -48,6 +49,7 @@ impl Query {
             server: None,
             rd: true,
             dnssec: false,
+            subnet: None,
         }
     }
 }
@@ -160,7 +162,9 @@ pub async fn run(cfg: &Config, queries: &[Query], mut on_reply: impl FnMut(Reply
                         guard += 1;
                     }
                     next_id[si] = id.wrapping_add(1);
-                    if !wire::encode_query(&mut buf, id, &q.name, q.qtype, q.rd, q.dnssec) {
+                    if !wire::encode_query(&mut buf, id, &q.name, q.qtype, q.rd, q.dnssec)
+                        || q.subnet.is_some_and(|s| !wire::add_ecs(&mut buf, s))
+                    {
                         outstanding -= 1;
                         on_reply(Reply { query: q, msg: None });
                         continue;

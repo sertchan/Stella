@@ -205,6 +205,7 @@ pub async fn nsec_probe(cfg: &Config, pairs: &[Pair]) -> Result<Vec<(usize, Stri
             server: Some(SocketAddr::from((p.ip, 53))),
             rd: false,
             dnssec: true,
+            subnet: None,
         })
         .collect();
     let mut index: FxHashMap<String, usize> = FxHashMap::default();
