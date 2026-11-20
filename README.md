@@ -5,18 +5,11 @@
 
 ## Stella: Behavioral Domain Detection Infrastructure
 
-The Stella project was established to integrate years of ongoing internet scanning for the development of Content Blocker and DNS Blocklist initiatives into an auditable, accountable, well-documented, and openly accessible infrastructure.
-
-Stella avoids reliance on name-based domain guessing, which is a crude heuristic capable of generating substantial false positives. Considering the thousands of organizations, independent developers, and millions of domains globally, modeling domain naming conventions provides a reasonable baseline yet remains far from high precision.
-
-Instead, Stella evaluates behavioral patterns. Although domains may be modified or newly registered, emerging and evolving domains tend to retain prior operational habits.
-
-Stella frequently employs attack surface discovery methods established in cybersecurity. It is particularly effective at mitigating newly provisioned domains, often prior to active deployment, enabling detection and blocking before such domains appear in the resolver logs of millions of users.
-
-Identifying and blocking a domain represents only the initial step. Because Stella supplies blocklists utilized by millions of users worldwide, it maintains comparable rigor with domain variants, effectively uncovering regional and modified variants within a tracker family.
-
-Beyond identifying novel domains, Stella also utilizes existing list entries as seeds, demonstrating high efficacy in surfacing associated variants.
-
-During false-positive auditing, Stella examines all domains across existing lists alongside its own detections, identifying additional domains that breaks websites and applications due to the same underlying cause and behavioral pattern.
-
-Stella is an actively maintained project that places substantial weight on user feedback, as a single false positive can reveal an algorithmic flaw. Once the underlying issue is addressed, all domains blocked for the same reason can be identified and removed from the lists.
+Stella was created to turn years of ongoing internet scanning for Content Blockers and DNS Blocklists into an open, auditable, accountable, and well-documented infrastructure.
+Stella avoids relying on name-based domain guessing, a rough heuristic that creates too many false positives. With thousands of organizations, independent developers, and millions of domains on the web, modeling naming patterns offers a decent baseline, though it stays far from high precision.
+Instead, Stella looks at behavioral patterns. Even when domains are modified or newly registered, they tend to keep their previous operational habits.
+Stella frequently uses attack surface discovery techniques from cybersecurity. It is especially effective at catching newly provisioned domains, often before they go live, making it possible to detect and block them before they ever show up in the resolver logs of millions of users.
+Finding and blocking a domain is only the first step. Because millions of users worldwide rely on Stella's blocklists, it applies the same rigor to domain variants, reliably uncovering regional and modified variants within a tracker family.
+On top of finding new domains, Stella also uses existing list entries as seeds, proving very effective at surfacing related variants.
+During false-positive audits, Stella checks all domains across existing lists alongside its own detections to spot other domains that break websites and apps for the same underlying reason and behavioral pattern.
+Stella is an actively maintained project that takes user feedback seriously, since a single false positive can expose a flaw in the algorithm. Once the underlying issue is fixed, every domain blocked for that same reason can be found and removed from the lists.
