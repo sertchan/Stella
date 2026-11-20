@@ -1,4 +1,5 @@
 pub mod chase;
+pub mod ecs;
 pub mod engine;
 pub mod stub;
 pub mod wild;
