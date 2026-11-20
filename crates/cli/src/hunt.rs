@@ -47,6 +47,11 @@ pub struct Args {
     max_ip: i64,
     #[arg(long, help = "Also probe names resolved in an earlier run")]
     again: bool,
+    #[arg(
+        long,
+        help = "Skip the check for CNAMEs to included hosts seen from EU, US and Asia client subnets"
+    )]
+    no_ecs: bool,
     #[arg(long, default_value = "auto", help = "Path set: lite, full, or auto")]
     battery: String,
 }
@@ -123,12 +128,12 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             args.zone_sample == 0 || *n <= args.zone_sample
         });
         let mut hit_zones: FxHashSet<String> = FxHashSet::default();
+        let mut found: Vec<pipeline::Found> = Vec::new();
         let st = pipeline::probe(ctx, &w, &prober, first, args.probe.conc, |p, h| {
-            picks += usize::from(h.verdict == stella_probe::rules::PICK);
             if h.verdict != stella_probe::rules::DROP {
                 hit_zones.insert(ctx.psl.regdom_or_self(&p.host).to_string());
             }
-            out.row(&[&p.host, h.product, h.verdict, &h.evidence]);
+            found.push(pipeline::Found::new(p, h));
         })
         .await;
         let (follow, skipped): (Vec<_>, Vec<_>) = deferred
@@ -142,10 +147,21 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         }
         let followed = follow.len();
         let more = pipeline::probe(ctx, &w, &prober, follow, args.probe.conc, |p, h| {
-            picks += usize::from(h.verdict == stella_probe::rules::PICK);
-            out.row(&[&p.host, h.product, h.verdict, &h.evidence]);
+            found.push(pipeline::Found::new(p, h));
         })
         .await;
+        let covered = if args.no_ecs {
+            0
+        } else {
+            pipeline::drop_covered(ctx, &w, &cfg, &mut found).await?
+        };
+        for f in &found {
+            picks += usize::from(f.verdict == stella_probe::rules::PICK);
+            out.row(&[&f.host, f.product, f.verdict, &f.evidence]);
+        }
+        if covered > 0 {
+            eprintln!("round={} covered-by-cname-elsewhere={covered}", r + 1);
+        }
         eprintln!(
             "round={} fresh={fresh_count} live={live} probed={} zone-followups={followed} sampled-out={} picks={picks} secs={:.1} {}",
             r + 1,
