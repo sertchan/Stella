@@ -141,6 +141,79 @@ pub async fn resolve(
     Ok(out)
 }
 
+pub struct Found {
+    pub host: String,
+    pub product: &'static str,
+    pub verdict: &'static str,
+    pub evidence: String,
+}
+
+impl Found {
+    pub fn new(p: &HostProbe, h: &Hit) -> Self {
+        Self {
+            host: p.host.clone(),
+            product: h.product,
+            verdict: h.verdict,
+            evidence: h.evidence.clone(),
+        }
+    }
+}
+
+pub async fn covered_elsewhere(
+    ctx: &Ctx,
+    cfg: &Config,
+    hosts: Vec<String>,
+) -> Result<FxHashMap<String, String>> {
+    let mut out = FxHashMap::default();
+    if hosts.is_empty() {
+        return Ok(out);
+    }
+    let known = ctx.known();
+    for s in stella_dns::ecs::chains(cfg, &hosts).await? {
+        if let Some(t) = s.chain.iter().find(|c| known.contains(c)) {
+            out.entry(s.host).or_insert_with(|| {
+                format!(
+                    "CNAME to included {t} seen from a {} client subnet",
+                    s.region
+                )
+            });
+        }
+    }
+    Ok(out)
+}
+
+pub async fn drop_covered(
+    ctx: &Ctx,
+    w: &Writer,
+    cfg: &Config,
+    found: &mut [Found],
+) -> Result<usize> {
+    let mut hosts: Vec<String> = found
+        .iter()
+        .filter(|f| f.verdict != rules::DROP)
+        .map(|f| f.host.clone())
+        .collect();
+    hosts.sort_unstable();
+    hosts.dedup();
+    let covered = covered_elsewhere(ctx, cfg, hosts).await?;
+    let mut n = 0usize;
+    for f in found.iter_mut().filter(|f| f.verdict != rules::DROP) {
+        let Some(why) = covered.get(&f.host) else {
+            continue;
+        };
+        n += 1;
+        f.verdict = rules::DROP;
+        f.evidence = format!("{}; {why}", f.evidence);
+        w.send(Row::Hit {
+            host: f.host.clone(),
+            product: f.product.into(),
+            evidence: f.evidence.clone(),
+            verdict: f.verdict.into(),
+        });
+    }
+    Ok(n)
+}
+
 pub fn join_addrs(addrs: &[std::net::Ipv4Addr]) -> String {
     addrs
         .iter()
