@@ -12,6 +12,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 rusqlite.workspace = true
+reqwest.workspace = true
 rustc-hash.workspace = true
 stella-apk.workspace = true
 stella-core.workspace = true
