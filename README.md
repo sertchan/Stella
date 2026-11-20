@@ -3,22 +3,22 @@
 > [!CAUTION]
 > Stella is currently in beta and under active development. Detection algorithms, features, and outputs may change, and occasional false positives can occur.
 
-## Who is Stella, and what is its purpose?
+## Project Stella: Behavioral Detection for Content and DNS
 
-The Stella project was built to bring years of ongoing internet scanning for developing Content Blocker and DNS Blocklist projects into an auditable, accountable, well-documented, and completely open and free structure.
+The Stella project was established to integrate years of ongoing internet scanning for the development of Content Blocker and DNS Blocklist initiatives into an auditable, accountable, well-documented, and openly accessible framework.
 
-Stella avoids relying on name-based domain guessing. Guessing by name is a crude method that can produce a large number of false positives. Given the thousands of companies, independent developers, and millions of domains worldwide, predicting how people name their domains offers a decent baseline, yet falls far short of high accuracy.
+Stella avoids reliance on name-based domain guessing, which is a crude heuristic capable of generating substantial false positives. Considering the thousands of organizations, independent developers, and millions of domains globally, modeling domain naming conventions provides a reasonable baseline yet remains far from high precision.
 
-Instead, Stella analyzes behavior. It is meticulous and obsessive. Domains may change and new ones may be created, yet new and changing domains still carry on their old habits.
+Instead, Stella evaluates behavioral patterns. Although domains may be modified or newly registered, emerging and evolving domains tend to retain prior operational habits.
 
-Stella frequently uses attack surface discovery techniques familiar from cybersecurity. It excels at neutralizing domains as soon as they are created, often before they are even put to use. This allows a domain to be discovered and blocked before it ever appears in the logs of millions of people.
+Stella frequently employs attack surface discovery methods established in cybersecurity. It is particularly effective at mitigating newly provisioned domains, often prior to active deployment, enabling detection and blocking before such domains appear in the telemetry logs of millions of users.
 
-Finding and blocking a domain is only the beginning. Because Stella feeds lists used by millions of people around the world, it is equally rigorous about variants and excels at uncovering all country-specific and modified variants of a tracker family.
+Identifying and blocking a domain represents only the initial step. Because Stella supplies blocklists utilized by millions of users worldwide, it maintains comparable rigor with domain variants, effectively uncovering regional and modified variants within a tracker family.
 
-Beyond finding new domains, Stella also uses domains already present in our lists as seeds, proving highly effective at discovering their variants.
+Beyond identifying novel domains, Stella also utilizes existing list entries as seeds, demonstrating high efficacy in surfacing associated variants.
 
-When scanning for false positives, Stella inspects every domain across our lists in addition to its own findings, detecting other domains that break websites and applications due to the same cause and behavioral pattern.
+During false-positive auditing, Stella examines all domains across existing lists alongside its own detections, identifying additional domains that disrupt websites and applications due to the same underlying cause and behavioral pattern.
 
-Stella is an actively developed project that places great importance on user feedback, as a single false positive can expose a flaw in the algorithm. Once that flaw is resolved, every domain blocked for the same reason can be located and removed from our lists.
+Stella is an actively maintained project that places substantial weight on user feedback, as a single false positive can reveal an algorithmic flaw. Once the underlying issue is addressed, all domains blocked for the same reason can be identified and removed from the lists.
 
-*Stella* means "star" in Latin, and this name is no coincidence. We hope it illuminates the dark corners of the internet before we ever reach them and guides our way.
+Stella means 'star' in Latin, and the designation is deliberate. The project aims to illuminate obscure areas of the internet prior to encounter and serve as a guiding reference.
