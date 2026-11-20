@@ -184,50 +184,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             }
             eprintln!("{list}: {} names", names.len());
         }
-        Cmd::Ct { par, subzone } => {
-            let done = ctx.store.done("ct")?;
-            let zones: Vec<String> = stdin_names()
-                .into_iter()
-                .filter(|z| !done.contains(z))
-                .collect();
-            let total = zones.len();
-            let (tx, mut rx) = tokio::sync::mpsc::channel(256);
-            let runner = tokio::spawn(ct::run(zones, par, subzone, tx));
-            let w = ctx.store.writer()?;
-            let mut out = Out::new();
-            let (mut ok, mut failed, mut names) = (0usize, 0usize, 0usize);
-            while let Some((zone, result)) = rx.recv().await {
-                match result {
-                    Ok(list) => {
-                        ok += 1;
-                        names += list.len();
-                        for n in list {
-                            out.row(&[&n, "ct", &zone]);
-                            w.send(Row::Origin {
-                                host: n,
-                                source: "ct".into(),
-                                detail: zone.clone(),
-                            });
-                        }
-                        w.send(Row::Done {
-                            kind: "ct".into(),
-                            key: zone,
-                        });
-                    }
-                    Err(e) => {
-                        failed += 1;
-                        eprintln!("ct {zone}: {e}");
-                    }
-                }
-            }
-            let _ = runner.await;
-            drop(out);
-            w.finish()?;
-            eprintln!(
-                "zones={total} ok={ok} failed={failed} names={names} secs={:.1}",
-                started.elapsed().as_secs_f64()
-            );
-        }
+        Cmd::Ct { par, subzone } => ct_zones(ctx, stdin_names(), par, subzone).await?,
         Cmd::Site { par } => {
             let done = ctx.store.done("site")?;
             let sites: Vec<String> = stdin_names()
@@ -514,5 +471,49 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             crate::cname::matches(ctx)?;
         }
     }
+    Ok(())
+}
+
+pub async fn ct_zones(ctx: &mut Ctx, input: Vec<String>, par: usize, subzone: bool) -> Result<()> {
+    let started = Instant::now();
+    let done = ctx.store.done("ct")?;
+    let zones: Vec<String> = input.into_iter().filter(|z| !done.contains(z)).collect();
+    let total = zones.len();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(256);
+    let runner = tokio::spawn(ct::run(zones, par, subzone, tx));
+    let w = ctx.store.writer()?;
+    let mut out = Out::new();
+    let (mut ok, mut failed, mut names) = (0usize, 0usize, 0usize);
+    while let Some((zone, result)) = rx.recv().await {
+        match result {
+            Ok(list) => {
+                ok += 1;
+                names += list.len();
+                for n in list {
+                    out.row(&[&n, "ct", &zone]);
+                    w.send(Row::Origin {
+                        host: n,
+                        source: "ct".into(),
+                        detail: zone.clone(),
+                    });
+                }
+                w.send(Row::Done {
+                    kind: "ct".into(),
+                    key: zone,
+                });
+            }
+            Err(e) => {
+                failed += 1;
+                eprintln!("ct {zone}: {e}");
+            }
+        }
+    }
+    let _ = runner.await;
+    drop(out);
+    w.finish()?;
+    eprintln!(
+        "zones={total} ok={ok} failed={failed} names={names} secs={:.1}",
+        started.elapsed().as_secs_f64()
+    );
     Ok(())
 }

@@ -23,9 +23,20 @@ pub struct Args {
 const DAY: i64 = 86_400;
 
 pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+    recheck(ctx, &args.dns, &args.probe, args.older_than_days)
+        .await
+        .map(|_| ())
+}
+
+pub async fn recheck(
+    ctx: &mut Ctx,
+    dns: &DnsArgs,
+    probe: &ProbeArgs,
+    older_than_days: i64,
+) -> Result<usize> {
     let started = Instant::now();
     let start_at = stella_core::now();
-    let cutoff = start_at - args.older_than_days * DAY;
+    let cutoff = start_at - older_than_days * DAY;
     let hosts: Vec<String> = ctx
         .store
         .rows(&format!(
@@ -36,7 +47,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         .collect();
     let total = hosts.len();
     let w = ctx.store.writer()?;
-    let res = pipeline::resolve(ctx, &w, &args.dns.config(), hosts.clone(), false).await?;
+    let res = pipeline::resolve(ctx, &w, &dns.config(), hosts.clone(), false).await?;
     let items: Vec<_> = res
         .into_iter()
         .filter_map(|r| {
@@ -46,8 +57,8 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         })
         .collect();
     let alive = items.len();
-    let prober = args.probe.prober();
-    let st = pipeline::probe(ctx, &w, &prober, items, args.probe.conc, |_, _| {}).await;
+    let prober = probe.prober();
+    let st = pipeline::probe(ctx, &w, &prober, items, probe.conc, |_, _| {}).await;
     tokio::task::block_in_place(|| w.flush());
     let mut stale = 0usize;
     {
@@ -69,5 +80,5 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         started.elapsed().as_secs_f64(),
         st.line()
     );
-    Ok(())
+    Ok(stale)
 }

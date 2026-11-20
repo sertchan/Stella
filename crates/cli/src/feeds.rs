@@ -327,12 +327,13 @@ pub async fn extract(ctx: &mut Ctx) -> Result<()> {
 }
 
 pub async fn passive(ctx: &mut Ctx, par: usize) -> Result<()> {
+    passive_zones(ctx, stdin_names(), par).await
+}
+
+pub async fn passive_zones(ctx: &mut Ctx, input: Vec<String>, par: usize) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("passive")?;
-    let zones: Vec<String> = stdin_names()
-        .into_iter()
-        .filter(|z| !done.contains(z))
-        .collect();
+    let zones: Vec<String> = input.into_iter().filter(|z| !done.contains(z)).collect();
     let total = zones.len();
     let c = web(60)?;
     let w = ctx.store.writer()?;
