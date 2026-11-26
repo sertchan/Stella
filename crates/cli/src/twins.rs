@@ -124,8 +124,19 @@ pub async fn verify(
     let mut prober = probe.prober();
     prober.cap = SIGNATURE_CAP;
     let mut sig: FxHashMap<String, String> = FxHashMap::default();
+    let mut verified: FxHashSet<String> = ctx
+        .store
+        .all("SELECT DISTINCT host FROM hit WHERE verdict = 'PICK' AND product <> 'twin'")?;
+    verified.extend(ctx.store.all("SELECT host FROM score WHERE score >= 2")?);
     let mut app: FxHashMap<String, String> = FxHashMap::default();
     battery::probe_all(&prober, targets, probe.conc, |p| {
+        let rd = ctx.psl.icann_regdom_or_self(&p.host);
+        if rules::classify(&p, rd)
+            .iter()
+            .any(|h| h.verdict != rules::DROP && h.product != rules::COLLECTOR)
+        {
+            verified.insert(p.host.clone());
+        }
         if let Some(s) = signature(&p) {
             sig.insert(p.host.clone(), s);
         }
@@ -158,6 +169,9 @@ pub async fn verify(
         let verdict = if let Some(why) = covered.get(c) {
             evidence.push_str(&format!("; {why}"));
             rules::DROP
+        } else if !verified.contains(s) {
+            evidence.push_str("; the seed has no product or behaviour evidence");
+            rules::REVIEW
         } else if let Some(t) = app.get(c) {
             evidence.push_str(&format!(
                 "; the shared reply is a web app: {}",
