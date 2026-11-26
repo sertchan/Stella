@@ -43,6 +43,7 @@ pub struct HostProbe {
     pub elapsed: Duration,
     pub sequential: bool,
     pub connects: usize,
+    pub plain_http: bool,
 }
 
 impl HostProbe {
@@ -75,6 +76,7 @@ const PIPELINE_STEP: Duration = Duration::from_millis(1500);
 const SCRIPT_WAIT: Duration = Duration::from_secs(4);
 const SILENT_TIMEOUTS: usize = 2;
 const SPREAD: usize = 3;
+const PLAIN_PORT: u16 = 80;
 
 struct Session<'a> {
     prober: &'a Prober,
@@ -351,6 +353,20 @@ impl Prober {
                 results.extend(second.iter().copied().zip(got));
             }
         }
+        let tls_failed = !results.iter().any(|(_, r)| r.is_some())
+            && s.fails
+                .iter()
+                .any(|f| matches!(f, Fail::TlsOther | Fail::TlsTimeout | Fail::TlsReset));
+        let mut plain_http = false;
+        if tls_failed && !s.left().is_zero() {
+            let got = self.plain_http(host, ip, &real, s.left()).await;
+            if got.iter().any(Option::is_some) {
+                plain_http = true;
+                s.connects += 1;
+                s.requests += got.iter().filter(|r| r.is_some()).count();
+                results = first.iter().copied().zip(got).collect();
+            }
+        }
         HostProbe {
             host: host.to_string(),
             ip,
@@ -361,7 +377,49 @@ impl Prober {
             elapsed: started.elapsed(),
             sequential: s.sequential,
             connects: s.connects,
+            plain_http,
         }
+    }
+
+    async fn plain_http(
+        &self,
+        host: &str,
+        ip: IpAddr,
+        paths: &[&str],
+        left: Duration,
+    ) -> Vec<Option<Resp>> {
+        let mut out: Vec<Option<Resp>> = Vec::with_capacity(paths.len());
+        if let Some(_permit) = self.limiter.slot().await {
+            let hs = self.limiter.handshake().await;
+            let tcp = tokio::time::timeout(
+                self.tcp_timeout.min(left),
+                TcpStream::connect((ip, PLAIN_PORT)),
+            )
+            .await;
+            drop(hs);
+            if let Ok(Ok(stream)) = tcp {
+                let mut conn = Conn::new(stream);
+                for p in paths {
+                    let got = tokio::time::timeout(
+                        self.timeout,
+                        conn.get(host, p, stella_core::config::USER_AGENT, self.cap),
+                    )
+                    .await;
+                    match got {
+                        Ok(Ok(r)) => {
+                            let close = r.close;
+                            out.push(Some(r));
+                            if close {
+                                break;
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+            }
+        }
+        out.resize_with(paths.len(), || None);
+        out
     }
 }
 

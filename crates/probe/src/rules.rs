@@ -459,6 +459,7 @@ mod tests {
             elapsed: std::time::Duration::ZERO,
             sequential: false,
             connects: 0,
+            plain_http: false,
         }
     }
 

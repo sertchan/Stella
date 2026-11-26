@@ -254,6 +254,7 @@ pub async fn probe(
             st.dead_secs += p.elapsed.as_secs_f64();
         }
         st.sequential += usize::from(p.sequential);
+        st.plain_http += usize::from(p.plain_http);
         st.connects += p.connects;
         if !p.answered() {
             let why = p.fails.last().map_or("no-answer", |f| f.as_str());
@@ -290,6 +291,9 @@ pub async fn probe(
         let mut hit = false;
         for mut h in rules::classify(&p, rd) {
             apply_allow(&mut h, allowed);
+            if p.plain_http {
+                h.evidence.push_str("; over plain http");
+            }
             hit |= h.verdict != rules::DROP;
             on_hit(&p, &h);
             w.send(Row::Hit {
@@ -320,6 +324,7 @@ pub struct Stats {
     pub dpi_retried: usize,
     pub sequential: usize,
     pub connects: usize,
+    pub plain_http: usize,
     pub busy: Duration,
     pub live: Vec<Duration>,
     pub dead_secs: f64,
@@ -342,13 +347,14 @@ impl Stats {
                 .map_or(0.0, Duration::as_secs_f64)
         };
         format!(
-            "hosts={} answered={} requests={} connects={} dpi-retried={} no-pipelining={} host-secs={:.0} dead-secs={:.0} live-p50={:.1} p90={:.1} p99={:.1} dead: {dead}",
+            "hosts={} answered={} requests={} connects={} dpi-retried={} no-pipelining={} plain-http={} host-secs={:.0} dead-secs={:.0} live-p50={:.1} p90={:.1} p99={:.1} dead: {dead}",
             self.total,
             self.answered,
             self.requests,
             self.connects,
             self.dpi_retried,
             self.sequential,
+            self.plain_http,
             self.busy.as_secs_f64(),
             self.dead_secs,
             pct(50),
