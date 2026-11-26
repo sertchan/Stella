@@ -7,7 +7,10 @@ in {
     inherit stella;
     default = stella;
   };
-  devShells.${system}.default = import ./shell.nix {inherit pkgs;};
+  devShells.${system} = {
+    default = import ./shell.nix {inherit pkgs;};
+    fuzz = import ./fuzz.nix {inherit pkgs;};
+  };
   formatter.${system} = import ./fmt.nix {inherit pkgs;};
   checks.${system} = import ./checks.nix {
     inherit pkgs stella;
