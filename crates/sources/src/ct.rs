@@ -36,12 +36,24 @@ async fn connect() -> Result<Client> {
     Ok(client)
 }
 
+fn literal(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
+fn like_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 fn query(zone: &str, subzone: bool) -> String {
+    let escaped = literal(&like_escape(zone));
     let like = if subzone {
-        format!("%{zone}")
+        format!("%{escaped}")
     } else {
-        format!("%.{zone}")
+        format!("%.{escaped}")
     };
+    let zone = literal(zone);
     format!(
         "SELECT DISTINCT lower(ci.name_value) FROM certificate_and_identities ci WHERE plainto_tsquery('certwatch', '{zone}') @@ identities(ci.certificate) AND lower(ci.name_value) LIKE '{like}'"
     )
@@ -121,5 +133,7 @@ mod tests {
     fn builds_queries() {
         assert!(super::query("example.com", false).ends_with("LIKE '%.example.com'"));
         assert!(super::query("sub.example.com", true).ends_with("LIKE '%sub.example.com'"));
+        assert!(super::query("my_zone.com", false).ends_with("LIKE '%.my\\_zone.com'"));
+        assert!(super::query("a'b.com", false).contains("'a''b.com'"));
     }
 }
