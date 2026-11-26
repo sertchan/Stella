@@ -1,5 +1,6 @@
 {pkgs}: let
   preCommit = import ./pre-commit.nix {inherit pkgs;};
+  prePush = import ./pre-push.nix {inherit pkgs;};
   comments = import ./comments.nix {inherit pkgs;};
 in
   pkgs.mkShell {
@@ -21,6 +22,7 @@ in
       pkgs.apkeep
       pkgs.xvfb
       preCommit
+      prePush
       comments
     ];
     env.RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
@@ -32,6 +34,13 @@ in
         mkdir -p "$gitDir/hooks"
         ln -sf "$hookTarget" "$gitDir/hooks/pre-commit"
         echo "installed pre-commit hook -> $hookTarget"
+      fi
+
+      pushTarget="${prePush}/bin/stella-pre-push"
+      if [ -n "$gitDir" ] && [ "$(readlink "$gitDir/hooks/pre-push" 2>/dev/null)" != "$pushTarget" ]; then
+        mkdir -p "$gitDir/hooks"
+        ln -sf "$pushTarget" "$gitDir/hooks/pre-push"
+        echo "installed pre-push hook -> $pushTarget"
       fi
     '';
   }
