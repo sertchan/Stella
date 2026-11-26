@@ -3,6 +3,7 @@ mod apk;
 mod audit;
 mod breakage;
 mod campaign;
+mod clusters;
 mod cname;
 mod crawl;
 mod ctx;
@@ -84,6 +85,8 @@ enum Cmd {
     Campaign(campaign::Args),
     #[command(about = "Names, resolutions, probes and hits per source")]
     Stats,
+    #[command(about = "Group probed hosts that answer the same way and show the uncovered ones")]
+    Clusters(clusters::Args),
     #[command(about = "Keep candidates that answer exactly like their listed seed or sibling")]
     Twins(twins::Args),
     #[command(about = "List hits with their evidence")]
@@ -121,6 +124,7 @@ fn main() -> Result<()> {
             Cmd::Breakage(a) => breakage::run(&mut ctx, a).await,
             Cmd::Campaign(a) => campaign::run(&mut ctx, a).await,
             Cmd::Stats => stats::run(&ctx),
+            Cmd::Clusters(a) => clusters::run(&ctx, a),
             Cmd::Twins(a) => twins::run(&mut ctx, a).await,
             Cmd::Review(a) => review::review(&ctx, a),
             Cmd::Export(a) => review::export(&ctx, a),
