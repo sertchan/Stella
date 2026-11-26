@@ -26,6 +26,7 @@ pub struct Args {
 pub const FUSED: &str = "fused";
 const BEHAVIOUR_MIN_SCORE: i64 = 2;
 const APPS_MIN: usize = 2;
+const FINGERPRINT_SITES: usize = 2;
 
 const KEEP_REVIEW: &[&str] = &[
     "main site of its zone",
@@ -157,6 +158,12 @@ pub fn gather(ctx: &Ctx, max_ip: usize) -> Result<FxHashMap<String, BTreeSet<&'s
         if pkgs.len() >= APPS_MIN {
             add(&mut signals, h, "apps");
         }
+    }
+    for r in ctx.store.rows(&format!(
+        "SELECT script FROM hook WHERE api IN ('canvas', 'webgl', 'audio') AND script <> ''
+         GROUP BY script HAVING count(DISTINCT site) >= {FINGERPRINT_SITES}"
+    ))? {
+        add(&mut signals, &r[0], "fingerprint");
     }
     let picks = ctx.store.all(&format!(
         "SELECT DISTINCT host FROM hit WHERE verdict = '{PICK}'"
