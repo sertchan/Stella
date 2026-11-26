@@ -339,4 +339,38 @@ mod tests {
         q.extend_from_slice(&[0xc0, (q.len()) as u8]);
         assert!(parse(&q).is_none());
     }
+
+    #[test]
+    fn survives_hostile_packets() {
+        let mut rng = stella_core::rng::Rng::seeded();
+        let mut seeds: Vec<Vec<u8>> = Vec::new();
+        for name in ["a.com", "x.y.example.org", "\\000.example.com"] {
+            let mut q = Vec::new();
+            encode_query(&mut q, 7, name, A, true, true);
+            seeds.push(q);
+        }
+        for _ in 0..400_000 {
+            let mut p = if rng.below(4) == 0 {
+                let n = rng.below(600) as usize;
+                (0..n).map(|_| rng.next_u64() as u8).collect()
+            } else {
+                seeds[rng.below(seeds.len() as u64) as usize].clone()
+            };
+            for _ in 0..=rng.below(8) {
+                if p.is_empty() {
+                    break;
+                }
+                let i = rng.below(p.len() as u64) as usize;
+                match rng.below(4) {
+                    0 => p[i] = rng.next_u64() as u8,
+                    1 => p.truncate(i),
+                    2 => p
+                        .splice(i..i, (0..rng.below(40)).map(|_| rng.next_u64() as u8))
+                        .for_each(drop),
+                    _ => p[i] = [0xc0, 0x00, 0xff, 0x3f][rng.below(4) as usize],
+                }
+            }
+            let _ = parse(&p);
+        }
+    }
 }
