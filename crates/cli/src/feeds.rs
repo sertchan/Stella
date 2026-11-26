@@ -599,7 +599,16 @@ async fn sdk_hosts(
             if index.status != 200 {
                 return None;
             }
-            pkg.archive_urls(&index.body)
+            let urls = pkg.archive_urls(&index.body);
+            if !matches!(pkg, sdk::Package::Pod(_)) {
+                urls
+            } else {
+                let spec = client::fetch(c, urls.first()?, SDK_INDEX_CAP).await.ok()?;
+                if spec.status != 200 {
+                    return None;
+                }
+                sdk::pod_archive_urls(&spec.body)
+            }
         }
     };
     for url in urls {
