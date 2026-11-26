@@ -1,6 +1,7 @@
 pub mod config;
 pub mod known;
 pub mod name;
+pub mod progress;
 pub mod psl;
 pub mod rng;
 pub mod shape;
