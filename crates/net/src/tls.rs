@@ -147,6 +147,21 @@ pub async fn connect(
         .map_err(|e| tls_fail(&e))
 }
 
+pub fn print<S>(stream: &TlsStream<S>) -> String {
+    let c = stream.get_ref().1;
+    let version = c
+        .protocol_version()
+        .map_or("-".to_string(), |v| format!("{v:?}"));
+    let cipher = c
+        .negotiated_cipher_suite()
+        .map_or("-".to_string(), |s| format!("{:?}", s.suite()));
+    let alpn = c
+        .alpn_protocol()
+        .map_or("-".to_string(), |a| String::from_utf8_lossy(a).into_owned());
+    let chain = c.peer_certificates().map_or(0, <[_]>::len);
+    format!("{version}|{cipher}|{alpn}|{chain}")
+}
+
 pub fn sans<S>(stream: &TlsStream<S>) -> Vec<String> {
     let Some(der) = stream
         .get_ref()
