@@ -3,6 +3,7 @@ pub mod known;
 pub mod name;
 pub mod psl;
 pub mod rng;
+pub mod shape;
 pub mod store;
 pub mod token;
 
