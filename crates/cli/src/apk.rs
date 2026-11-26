@@ -158,6 +158,12 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         }
         Cmd::Filter => {
             let rows = ctx.store.rows("SELECT pkg, method, url FROM apk_url")?;
+            let mut config: FxHashMap<String, FxHashSet<String>> = FxHashMap::default();
+            for r in rows.iter().filter(|r| r[1] == stella_apk::scan::AXML_HOST) {
+                if let Some((host, _)) = filter::split(&r[2]) {
+                    config.entry(host).or_default().insert(r[0].clone());
+                }
+            }
             let mut per_host: FxHashMap<String, Vec<(String, String, String)>> =
                 FxHashMap::default();
             for r in &rows {
@@ -175,6 +181,21 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
                 !known.contains(h) && !stella_core::token::skipped(sub)
             });
             let w = ctx.store.writer()?;
+            let mut config_hosts = 0usize;
+            for (host, apps) in &config {
+                if known.contains(host) {
+                    continue;
+                }
+                config_hosts += 1;
+                for a in apps {
+                    w.send(Row::Origin {
+                        host: host.clone(),
+                        source: "apk-config".into(),
+                        detail: a.clone(),
+                    });
+                }
+            }
+            eprintln!("apk filter: {config_hosts} hosts from network security config files");
             let mut out = Out::new();
             let mut hosts: Vec<_> = per_host.into_iter().collect();
             hosts.sort_unstable_by(|a, b| a.0.cmp(&b.0));

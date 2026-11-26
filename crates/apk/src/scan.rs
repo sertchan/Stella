@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 const MEMBER_CAP: u64 = 120 * 1024 * 1024;
 const NESTED_DEPTH: u8 = 2;
+pub const AXML_HOST: &str = "axml-host";
 
 static MEMBERS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(^classes\d*\.dex$|\.so$|^resources\.arsc$|^assets/|^res/raw/|\.json$|\.js$|\.xml$|\.bin$|\.dat$)")
@@ -105,6 +106,27 @@ pub fn scan(path: &Path) -> Result<Outcome> {
                         .to_string(),
                     member: name.clone(),
                 });
+            }
+            if let Some(strings) = crate::axml::strings(data) {
+                let text = strings.join("\n");
+                for m in URL_WITH_PATH.find_iter(text.as_bytes()) {
+                    v.push(Found {
+                        method: "axml".into(),
+                        url: String::from_utf8_lossy(m.as_bytes())
+                            .trim_end_matches('.')
+                            .to_string(),
+                        member: name.clone(),
+                    });
+                }
+                if crate::axml::network_config(&strings) {
+                    for h in strings.iter().filter_map(|s| crate::axml::host_like(s)) {
+                        v.push(Found {
+                            method: AXML_HOST.into(),
+                            url: format!("https://{h}/"),
+                            member: name.clone(),
+                        });
+                    }
+                }
             }
             let dex = name.to_ascii_lowercase().ends_with(".dex");
             deob::scan(data, dex, &mut |method, url| {
