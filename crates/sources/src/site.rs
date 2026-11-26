@@ -105,6 +105,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn mines_report_and_link_headers_and_escaped_urls() {
+        let hosts = |name: &'static str, v: &[u8]| -> Vec<String> {
+            header_hosts(name, v).into_iter().map(|(_, h)| h).collect()
+        };
+        assert_eq!(
+            hosts(
+                "report-to",
+                br#"{"group":"default","max_age":31536000,"endpoints":[{"url":"https://r.vendor.io/report"}]}"#
+            ),
+            ["r.vendor.io"]
+        );
+        assert!(hosts("nel", br#"{"report_to":"default","max_age":31536000}"#).is_empty());
+        assert_eq!(
+            hosts(
+                "link",
+                b"<https://cdn.vendor.io>; rel=preconnect, <https://fonts.gstatic.com>; rel=dns-prefetch"
+            ),
+            ["cdn.vendor.io", "fonts.gstatic.com"]
+        );
+        let json = br#"{"vtp_transport_url":"https:\/\/sst.shop.com","x":1}"#;
+        assert_eq!(inline(json), ["sst.shop.com"]);
+        let escaped = br#"{"transport_url":"https:\/\/sst.shop.com"}"#;
+        assert_eq!(inline(escaped), ["sst.shop.com"]);
+        assert!(ids(b"GTM-1 G-ABC AW-12").is_empty());
+    }
+
+    #[test]
     fn mines_tags_and_headers() {
         let page = br#"<script async src="https://www.googletagmanager.com/gtag/js?id=G-ABC123XY"></script>
             gtag('config','GTM-W8KJ2Q',{server_container_url:'https://sgtm.shop.com'});
