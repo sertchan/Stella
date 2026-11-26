@@ -35,6 +35,11 @@ pub struct Args {
         help = "Control zones that mark a cluster as generic"
     )]
     control_zones: usize,
+    #[arg(
+        long,
+        help = "Also split clusters by the TLS version, cipher, ALPN and chain length of the host"
+    )]
+    tls: bool,
 }
 
 pub struct ProbeRow {
@@ -266,32 +271,50 @@ fn merge_loose<'a>(groups: Vec<(Vec<String>, Vec<&'a str>)>) -> Vec<(Vec<String>
 
 #[cfg(test)]
 pub fn cluster(rows: &[ProbeRow], member: impl Fn(&str) -> Member) -> Vec<Cluster> {
-    cluster_with(rows, false, member)
+    cluster_with(rows, false, &FxHashMap::default(), member)
 }
 
 pub fn cluster_with(
     rows: &[ProbeRow],
     loose: bool,
+    prints: &FxHashMap<String, String>,
     member: impl Fn(&str) -> Member,
 ) -> Vec<Cluster> {
-    let mut groups: FxHashMap<Vec<String>, Vec<&str>> = FxHashMap::default();
+    let mut by_print: FxHashMap<String, FxHashMap<Vec<String>, Vec<&str>>> = FxHashMap::default();
     for (host, slots) in signatures(rows) {
-        groups.entry(slots).or_default().push(host);
+        let print = prints.get(host).cloned().unwrap_or_default();
+        by_print
+            .entry(print)
+            .or_default()
+            .entry(slots)
+            .or_default()
+            .push(host);
     }
-    let mut groups: Vec<(Vec<String>, Vec<&str>)> = groups.into_iter().collect();
-    if loose {
-        groups = merge_loose(groups);
+    let mut groups: Vec<(String, Vec<String>, Vec<&str>)> = Vec::new();
+    for (print, g) in by_print {
+        let mut g: Vec<(Vec<String>, Vec<&str>)> = g.into_iter().collect();
+        if loose {
+            g = merge_loose(g);
+        }
+        groups.extend(g.into_iter().map(|(s, h)| (print.clone(), s, h)));
     }
     let mut out: Vec<Cluster> = groups
         .into_iter()
-        .map(|(slots, mut hosts)| {
+        .map(|(print, slots, mut hosts)| {
             hosts.sort_unstable();
             let answered = || slots.iter().filter(|t| *t != "-" && *t != "*");
             let kinds: FxHashSet<&str> = answered().map(|t| kind(t)).collect();
             let bodyless = !slots.iter().any(|t| t == "*") && answered().all(|t| t.ends_with(':'));
             Cluster {
-                id: format!("{:08x}", shape::fnv1a(slots.join("|").as_bytes()) as u32),
-                shape: describe(&slots),
+                id: format!(
+                    "{:08x}",
+                    shape::fnv1a(format!("{}|{print}", slots.join("|")).as_bytes()) as u32
+                ),
+                shape: if print.is_empty() {
+                    describe(&slots)
+                } else {
+                    format!("{} tls={print}", describe(&slots))
+                },
                 flat: kinds.len() <= 1,
                 bodyless,
                 members: hosts.into_iter().map(&member).collect(),
@@ -320,8 +343,21 @@ fn load(ctx: &Ctx) -> Result<Vec<ProbeRow>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-pub fn build(ctx: &Ctx, loose: bool) -> Result<Vec<Cluster>> {
+pub fn build(ctx: &Ctx, loose: bool, tls: bool) -> Result<Vec<Cluster>> {
     let rows = load(ctx)?;
+    let prints: FxHashMap<String, String> = if tls {
+        ctx.store
+            .rows("SELECT host, print FROM tlsprint")?
+            .into_iter()
+            .filter_map(|mut r| {
+                let p = r.pop()?;
+                let h = r.pop()?;
+                Some((h, p))
+            })
+            .collect()
+    } else {
+        FxHashMap::default()
+    };
     let names: FxHashMap<String, (String, bool)> = ctx
         .store
         .rows("SELECT host, regdom, known FROM name")?
@@ -339,7 +375,7 @@ pub fn build(ctx: &Ctx, loose: bool) -> Result<Vec<Cluster>> {
     let control = ctx
         .store
         .all("SELECT DISTINCT host FROM origin WHERE source = 'control'")?;
-    Ok(cluster_with(&rows, loose, |host| {
+    Ok(cluster_with(&rows, loose, &prints, |host| {
         let (regdom, listed) = names
             .get(host)
             .cloned()
@@ -356,7 +392,7 @@ pub fn build(ctx: &Ctx, loose: bool) -> Result<Vec<Cluster>> {
 }
 
 pub fn summary(ctx: &Ctx, min_zones: usize, control_zones: usize) -> Result<String> {
-    let clusters = build(ctx, true)?;
+    let clusters = build(ctx, true, false)?;
     let mut parts: Vec<String> = Vec::new();
     for label in [Label::Candidate, Label::New] {
         let hit: Vec<&Cluster> = clusters
@@ -377,7 +413,7 @@ pub fn summary(ctx: &Ctx, min_zones: usize, control_zones: usize) -> Result<Stri
 }
 
 pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
-    let clusters = build(ctx, args.loose)?;
+    let clusters = build(ctx, args.loose, args.tls)?;
     let rows = load(ctx)?;
     let mut out = Out::new();
     if let Some(id) = args.show {
@@ -577,7 +613,7 @@ mod tests {
         html[0] = row("s.c.com", "/", 400, "application/json", "");
         rows.extend(html);
         assert_eq!(cluster(&rows, member(&[])).len(), 2);
-        let merged = cluster_with(&rows, true, member(&[]));
+        let merged = cluster_with(&rows, true, &FxHashMap::default(), member(&[]));
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].members.len(), 3);
         assert!(merged[0].shape.starts_with("/=*:"));
@@ -590,7 +626,10 @@ mod tests {
             .into_iter()
             .chain(site("b.y.com", "<h1>blog two</h1>"))
             .collect();
-        assert_eq!(cluster_with(&generic, true, member(&[])).len(), 2);
+        assert_eq!(
+            cluster_with(&generic, true, &FxHashMap::default(), member(&[])).len(),
+            2
+        );
     }
 
     #[test]
