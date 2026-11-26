@@ -74,9 +74,11 @@ pub async fn crawl(ctx: &mut Ctx, args: CrawlArgs) -> Result<()> {
     let runner = tokio::spawn(async move { crawl::run(urls, opts, &work, tx).await });
     let w = ctx.store.writer()?;
     let mut out = Out::new();
+    let mut progress = stella_core::progress::Progress::new("crawl", total);
     let (mut pages, mut requests, mut errors) = (0usize, 0usize, 0usize);
     while let Some(p) = rx.recv().await {
         pages += 1;
+        progress.tick(pages, args.par.min(total.saturating_sub(pages)), None);
         requests += p.requests.len();
         let site = stella_core::name::host_of_url(&p.url)
             .unwrap_or("")

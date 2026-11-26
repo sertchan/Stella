@@ -483,8 +483,14 @@ pub async fn ct_zones(ctx: &mut Ctx, input: Vec<String>, par: usize, subzone: bo
     let runner = tokio::spawn(ct::run(zones, par, subzone, tx));
     let w = ctx.store.writer()?;
     let mut out = Out::new();
+    let mut progress = stella_core::progress::Progress::new("ct", total);
     let (mut ok, mut failed, mut names) = (0usize, 0usize, 0usize);
     while let Some((zone, result)) = rx.recv().await {
+        progress.tick(
+            ok + failed,
+            par.min(total.saturating_sub(ok + failed)),
+            Some(names),
+        );
         match result {
             Ok(list) => {
                 ok += 1;

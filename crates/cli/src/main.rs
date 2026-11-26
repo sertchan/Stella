@@ -39,6 +39,8 @@ struct Cli {
         help = "State directory with the database, lists and downloads"
     )]
     state: Option<std::path::PathBuf>,
+    #[arg(long, global = true, help = "Print progress lines as JSON")]
+    progress_json: bool,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -97,6 +99,7 @@ enum Cmd {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    stella_core::progress::set_json(cli.progress_json);
     let mut paths = Paths::from_env();
     if let Some(s) = cli.state {
         paths.state = s;
