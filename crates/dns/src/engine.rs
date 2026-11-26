@@ -106,6 +106,7 @@ pub async fn run(cfg: &Config, queries: &[Query], mut on_reply: impl FnMut(Reply
     let mut buf = Vec::with_capacity(512);
     let mut tick = tokio::time::interval(TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut progress = stella_core::progress::Progress::new("dns", queries.len());
 
     while outstanding > 0 {
         tokio::select! {
@@ -128,6 +129,7 @@ pub async fn run(cfg: &Config, queries: &[Query], mut on_reply: impl FnMut(Reply
             }
             _ = tick.tick() => {
                 let now = Instant::now();
+                progress.tick(queries.len() - outstanding, pending.len(), None);
                 while let Some(Reverse((at, si, id))) = deadlines.peek().copied() {
                     if at > now {
                         break;
