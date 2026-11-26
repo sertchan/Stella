@@ -347,6 +347,46 @@ fn scan_tgz(data: &[u8], set: &mut FxHashSet<String>) -> bool {
     any
 }
 
+const RAW_CHUNK: usize = 8 * 1024 * 1024;
+const RAW_OVERLAP: usize = 512;
+
+pub fn hosts_in_stream(mut r: impl Read) -> std::io::Result<Vec<String>> {
+    let mut set: FxHashSet<String> = FxHashSet::default();
+    let mut buf = vec![0u8; RAW_CHUNK + RAW_OVERLAP];
+    let mut carry = 0usize;
+    loop {
+        let mut filled = carry;
+        while filled < buf.len() {
+            let n = r.read(&mut buf[filled..])?;
+            if n == 0 {
+                break;
+            }
+            filled += n;
+        }
+        set.extend(crate::scripts::hosts_in_script(&buf[..filled]));
+        if filled < buf.len() {
+            break;
+        }
+        buf.copy_within(filled - RAW_OVERLAP..filled, 0);
+        carry = RAW_OVERLAP;
+    }
+    let mut out: Vec<String> = set.into_iter().collect();
+    out.sort_unstable();
+    Ok(out)
+}
+
+pub fn hosts_in_file(path: &std::path::Path) -> Option<Vec<String>> {
+    let size = std::fs::metadata(path).ok()?.len() as usize;
+    if size <= ARCHIVE_CAP {
+        let data = std::fs::read(path).ok()?;
+        if let Some(found) = hosts_in_archive(&data) {
+            return Some(found);
+        }
+        return hosts_in_stream(Cursor::new(data)).ok();
+    }
+    hosts_in_stream(std::io::BufReader::new(std::fs::File::open(path).ok()?)).ok()
+}
+
 pub fn hosts_in_archive(data: &[u8]) -> Option<Vec<String>> {
     let mut set: FxHashSet<String> = FxHashSet::default();
     let ok = if data.starts_with(b"PK") {
@@ -500,6 +540,13 @@ mod tests {
         let tgz = gz.finish().expect("gz");
         assert_eq!(hosts_in_archive(&tgz).expect("tgz"), ["api.track.io"]);
         assert!(hosts_in_archive(b"plain text").is_none());
+        let mut big = vec![0u8; RAW_CHUNK - 10];
+        big.extend_from_slice(b"https://ota.vendor.tv/check");
+        big.extend(vec![0u8; 100]);
+        assert_eq!(
+            hosts_in_stream(Cursor::new(big)).expect("raw"),
+            ["ota.vendor.tv"]
+        );
         let mut ipk = b"!<arch>\n".to_vec();
         for (name, body) in [("debian-binary", &b"2.0\n"[..]), ("data.tar.gz", &tgz[..])] {
             ipk.extend_from_slice(

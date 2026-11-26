@@ -585,7 +585,7 @@ async fn sdk_hosts(
 ) -> Option<Vec<String>> {
     if let sdk::Package::File(p) = pkg {
         let p = p.clone();
-        return tokio::task::spawn_blocking(move || sdk::hosts_in_archive(&std::fs::read(p).ok()?))
+        return tokio::task::spawn_blocking(move || sdk::hosts_in_file(&p))
             .await
             .ok()
             .flatten();
