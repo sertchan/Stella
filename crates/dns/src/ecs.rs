@@ -21,6 +21,56 @@ pub struct Seen {
     pub chain: Vec<String>,
 }
 
+pub struct Placed {
+    pub host: String,
+    pub region: &'static str,
+    pub addrs: Vec<std::net::Ipv4Addr>,
+}
+
+pub async fn addresses(cfg: &Config, names: &[String]) -> Result<Vec<Placed>> {
+    let cfg = Config {
+        qps: cfg.qps.min(QPS),
+        ..cfg.clone()
+    };
+    let server = SocketAddr::from(SERVER);
+    let query = |name: &str, subnet: [u8; 3]| Query {
+        server: Some(server),
+        subnet: Some(subnet),
+        ..Query::recursive(name.to_string(), wire::A)
+    };
+    let mut out = Vec::new();
+    for (region, subnet) in REGIONS {
+        let mut want: FxHashMap<String, String> =
+            names.iter().map(|n| (n.clone(), n.clone())).collect();
+        for _ in 0..=HOPS {
+            if want.is_empty() {
+                break;
+            }
+            let qs: Vec<Query> = want.keys().map(|n| query(n, *subnet)).collect();
+            let mut next: FxHashMap<String, String> = FxHashMap::default();
+            engine::run(&cfg, &qs, |r| {
+                let Some(m) = r.msg else { return };
+                let (chain, addrs) = follow(&m, &r.query.name);
+                let Some(host) = want.get(&r.query.name) else {
+                    return;
+                };
+                if !addrs.is_empty() {
+                    out.push(Placed {
+                        host: host.clone(),
+                        region,
+                        addrs,
+                    });
+                } else if let Some(t) = chain.last() {
+                    next.insert(t.clone(), host.clone());
+                }
+            })
+            .await?;
+            want = next;
+        }
+    }
+    Ok(out)
+}
+
 pub async fn chains(cfg: &Config, names: &[String]) -> Result<Vec<Seen>> {
     let cfg = Config {
         qps: cfg.qps.min(QPS),
