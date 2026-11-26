@@ -113,6 +113,24 @@ pub struct Store {
     path: PathBuf,
 }
 
+const MIGRATIONS: &[&str] = &[SCHEMA];
+
+pub fn migrate(conn: &Connection) -> Result<i64> {
+    let mut version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    let target = MIGRATIONS.len() as i64;
+    if version > target {
+        anyhow::bail!("database schema {version} is newer than this build, which knows {target}");
+    }
+    while version < target {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(MIGRATIONS[version as usize])?;
+        version += 1;
+        tx.pragma_update(None, "user_version", version)?;
+        tx.commit()?;
+    }
+    Ok(version)
+}
+
 fn tune(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-262144; PRAGMA busy_timeout=60000;",
@@ -131,7 +149,7 @@ impl Store {
         )
         .with_context(|| format!("open {}", path.display()))?;
         tune(&conn)?;
-        conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Self {
             conn,
             path: path.to_path_buf(),
@@ -365,6 +383,15 @@ impl Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrates_once_and_refuses_newer_schemas() {
+        let conn = Connection::open_in_memory().expect("memory db");
+        assert_eq!(migrate(&conn).expect("first"), MIGRATIONS.len() as i64);
+        assert_eq!(migrate(&conn).expect("again"), MIGRATIONS.len() as i64);
+        conn.pragma_update(None, "user_version", 99).expect("bump");
+        assert!(migrate(&conn).is_err());
+    }
 
     #[test]
     fn writes_and_reads() -> Result<()> {
