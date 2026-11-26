@@ -30,6 +30,32 @@ pub struct CrawlArgs {
         help = "Pages per browser process before a restart"
     )]
     restart_every: usize,
+    #[arg(long, value_enum, default_value_t = ProfileArg::Android, help = "Browser profile: user agent and screen size")]
+    profile: ProfileArg,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum ProfileArg {
+    Android,
+    Ios,
+    Desktop,
+}
+
+impl ProfileArg {
+    fn profile(self) -> stella_crawl::cdp::Profile {
+        match self {
+            Self::Android => stella_crawl::cdp::Profile::Android,
+            Self::Ios => stella_crawl::cdp::Profile::Ios,
+            Self::Desktop => stella_crawl::cdp::Profile::Desktop,
+        }
+    }
+}
+
+pub fn done_key(profile: stella_crawl::cdp::Profile, url: &str) -> String {
+    match profile {
+        stella_crawl::cdp::Profile::Android => url.to_string(),
+        p => format!("{} {url}", p.name()),
+    }
 }
 
 #[derive(clap::Args)]
@@ -56,9 +82,11 @@ pub async fn crawl(ctx: &mut Ctx, args: CrawlArgs) -> Result<()> {
     let urls: Vec<String> = stdin_rows()
         .into_iter()
         .filter_map(|r| r.first().and_then(|u| url_of(u)))
-        .filter(|u| !done.contains(u))
+        .filter(|u| !done.contains(&done_key(args.profile.profile(), u)))
         .collect();
     let total = urls.len();
+    let profile = args.profile.profile();
+    let (width, height) = profile.size();
     let opts = Options {
         par: args.par,
         dwell: Duration::from_secs(args.dwell),
@@ -66,8 +94,9 @@ pub async fn crawl(ctx: &mut Ctx, args: CrawlArgs) -> Result<()> {
         after: Duration::from_secs(args.after),
         headful: args.headful,
         restart_every: args.restart_every,
-        width: 412,
-        height: 915,
+        width,
+        height,
+        profile,
     };
     let work = ctx.paths.cache().join("crawl");
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
@@ -111,7 +140,7 @@ pub async fn crawl(ctx: &mut Ctx, args: CrawlArgs) -> Result<()> {
         }
         w.send(Row::Done {
             kind: "crawl".into(),
-            key: p.url,
+            key: done_key(profile, &p.url),
         });
     }
     runner.await??;
@@ -201,4 +230,18 @@ pub fn score(ctx: &mut Ctx, args: ScoreArgs) -> Result<()> {
     }
     eprintln!("hosts={} review={review}", scores.len());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use stella_crawl::cdp::Profile;
+
+    #[test]
+    fn keys_other_profiles_apart() {
+        assert_eq!(done_key(Profile::Android, "https://a.io/"), "https://a.io/");
+        assert_eq!(done_key(Profile::Ios, "https://a.io/"), "ios https://a.io/");
+        assert_eq!(Profile::Ios.size(), (390, 844));
+        assert!(Profile::Desktop.user_agent().contains("Windows NT"));
+    }
 }

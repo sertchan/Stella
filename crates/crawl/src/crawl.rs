@@ -35,6 +35,7 @@ pub struct Options {
     pub restart_every: usize,
     pub width: u32,
     pub height: u32,
+    pub profile: crate::cdp::Profile,
 }
 
 pub struct Page {
@@ -272,6 +273,7 @@ pub async fn run(
     };
     let launch = Launch {
         headful: opts.headful,
+        user_agent: opts.profile.user_agent(),
         display: display.as_ref().map(|d| d.name.clone()),
         width: opts.width,
         height: opts.height,

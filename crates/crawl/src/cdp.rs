@@ -12,6 +12,42 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 
 pub const ANDROID_UA: &str = "Mozilla/5.0 (Linux; Android 15; SM-S921B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Mobile Safari/537.36";
+pub const IOS_UA: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1";
+pub const DESKTOP_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36";
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Profile {
+    #[default]
+    Android,
+    Ios,
+    Desktop,
+}
+
+impl Profile {
+    pub fn user_agent(self) -> &'static str {
+        match self {
+            Self::Android => ANDROID_UA,
+            Self::Ios => IOS_UA,
+            Self::Desktop => DESKTOP_UA,
+        }
+    }
+
+    pub fn size(self) -> (u32, u32) {
+        match self {
+            Self::Android => (412, 915),
+            Self::Ios => (390, 844),
+            Self::Desktop => (1366, 900),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Android => "android",
+            Self::Ios => "ios",
+            Self::Desktop => "desktop",
+        }
+    }
+}
 const DOH: &str =
     r#"{"dns_over_https":{"mode":"secure","templates":"https://cloudflare-dns.com/dns-query"}}"#;
 const PORT_WAIT: Duration = Duration::from_secs(30);
@@ -22,6 +58,7 @@ type Sessions = Arc<Mutex<FxHashMap<String, mpsc::UnboundedSender<Value>>>>;
 
 pub struct Launch {
     pub headful: bool,
+    pub user_agent: &'static str,
     pub display: Option<String>,
     pub width: u32,
     pub height: u32,
@@ -76,7 +113,7 @@ impl Browser {
         ])
         .arg(format!("--window-size={},{}", opts.width, opts.height))
         .arg(format!("--user-data-dir={}", profile.display()))
-        .arg(format!("--user-agent={ANDROID_UA}"))
+        .arg(format!("--user-agent={}", opts.user_agent))
         .args(&opts.extra)
         .arg("about:blank")
         .stdin(Stdio::null())

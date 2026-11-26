@@ -785,6 +785,7 @@ pub async fn sdk_index(ctx: &mut Ctx, limit: usize) -> Result<()> {
     let started = Instant::now();
     let launch = stella_crawl::cdp::Launch {
         headful: false,
+        user_agent: stella_crawl::cdp::DESKTOP_UA,
         display: None,
         width: 1280,
         height: 900,

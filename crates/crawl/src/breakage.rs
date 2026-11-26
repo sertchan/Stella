@@ -286,6 +286,7 @@ pub fn judge(base: &[Snapshot], blocked: &Snapshot) -> Judgement {
 fn launch(opts: &Options, display: Option<&Display>, extra: Vec<String>) -> Launch {
     Launch {
         headful: opts.headful,
+        user_agent: crate::cdp::ANDROID_UA,
         display: display.map(|d| d.name.clone()),
         width: opts.width,
         height: opts.height,
