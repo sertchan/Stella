@@ -24,6 +24,12 @@ pub struct Args {
     show: Option<String>,
     #[arg(long, default_value_t = 5, help = "Uncovered sample hosts per cluster")]
     samples: usize,
+    #[arg(
+        long,
+        default_value_t = 2,
+        help = "Control zones that mark a cluster as generic"
+    )]
+    control_zones: usize,
 }
 
 pub struct ProbeRow {
@@ -41,6 +47,7 @@ pub enum Label {
     Candidate,
     New,
     Weak,
+    Generic,
     Plain,
 }
 
@@ -50,6 +57,7 @@ impl Label {
             Label::Candidate => "CANDIDATE",
             Label::New => "NEW",
             Label::Weak => "WEAK",
+            Label::Generic => "GENERIC",
             Label::Plain => "-",
         }
     }
@@ -61,6 +69,7 @@ pub struct Member {
     pub listed: bool,
     pub picked: bool,
     pub allowed: bool,
+    pub control: bool,
 }
 
 impl Member {
@@ -69,10 +78,13 @@ impl Member {
     }
 
     fn open(&self) -> bool {
-        !self.covered() && !self.allowed
+        !self.covered() && !self.allowed && !self.control
     }
 
     fn state(&self) -> &'static str {
+        if self.control {
+            return "control";
+        }
         match (self.listed, self.picked, self.allowed) {
             (_, _, true) => "allowed",
             (true, _, _) => "listed",
@@ -100,9 +112,12 @@ impl Cluster {
             .len()
     }
 
-    pub fn label(&self, min_zones: usize) -> Label {
+    pub fn label(&self, min_zones: usize, control_zones: usize) -> Label {
         if self.flat || self.zones(|_| true) < min_zones {
             return Label::Plain;
+        }
+        if self.zones(|m| m.control) >= control_zones {
+            return Label::Generic;
         }
         let covered = self.members.iter().filter(|m| m.covered()).count();
         let open = self.members.iter().filter(|m| m.open()).count();
@@ -247,6 +262,9 @@ pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
     let picked = ctx
         .store
         .all("SELECT DISTINCT host FROM hit WHERE verdict = 'PICK'")?;
+    let control = ctx
+        .store
+        .all("SELECT DISTINCT host FROM origin WHERE source = 'control'")?;
     let clusters = cluster(&rows, |host| {
         let (regdom, listed) = names
             .get(host)
@@ -258,6 +276,7 @@ pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
             listed,
             picked: picked.contains(host),
             allowed: ctx.allowed(host).is_some(),
+            control: control.contains(host),
         }
     });
     let mut out = Out::new();
@@ -274,8 +293,11 @@ pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
     let mut shown: Vec<(&Cluster, Label)> = clusters
         .iter()
         .filter(|c| args.flat || !c.flat)
-        .map(|c| (c, c.label(args.min_zones)))
-        .filter(|(c, l)| *l != Label::Plain || (args.all && c.zones(|_| true) >= args.min_zones))
+        .map(|c| (c, c.label(args.min_zones, args.control_zones)))
+        .filter(|(c, l)| {
+            !matches!(l, Label::Plain | Label::Generic)
+                || (args.all && c.zones(|_| true) >= args.min_zones)
+        })
         .collect();
     shown.sort_by_key(|(c, l)| (*l as u8, std::cmp::Reverse(c.zones(Member::open))));
     let mut labels: FxHashMap<&str, usize> = FxHashMap::default();
@@ -352,6 +374,7 @@ mod tests {
             listed: listed.iter().any(|l| l == host),
             picked: false,
             allowed: false,
+            control: host.starts_with("www."),
         }
     }
 
@@ -366,7 +389,7 @@ mod tests {
         let c = &clusters[0];
         assert!(!c.flat);
         assert_eq!(c.members.len(), 4);
-        assert_eq!(c.label(3), Label::Candidate);
+        assert_eq!(c.label(3, 2), Label::Candidate);
         assert_eq!(c.samples(5), vec!["gtm.d.com"]);
     }
 
@@ -379,7 +402,7 @@ mod tests {
         let clusters = cluster(&rows, member(&[]));
         assert_eq!(clusters.len(), 1);
         assert!(clusters[0].flat);
-        assert_eq!(clusters[0].label(3), Label::Plain);
+        assert_eq!(clusters[0].label(3, 2), Label::Plain);
     }
 
     #[test]
@@ -389,8 +412,8 @@ mod tests {
             .flat_map(|h| sgtm(h))
             .collect();
         let clusters = cluster(&rows, member(&[]));
-        assert_eq!(clusters[0].label(3), Label::New);
-        assert_eq!(clusters[0].label(4), Label::Plain);
+        assert_eq!(clusters[0].label(3, 2), Label::New);
+        assert_eq!(clusters[0].label(4, 2), Label::Plain);
     }
 
     #[test]
@@ -429,7 +452,19 @@ mod tests {
             .collect();
         let clusters = cluster(&rows, member(&["g.a.com", "g.b.com", "g.c.com"]));
         assert!(clusters[0].bodyless);
-        assert_eq!(clusters[0].label(3), Label::Weak);
+        assert_eq!(clusters[0].label(3, 2), Label::Weak);
+    }
+
+    #[test]
+    fn cluster_shared_with_control_sites_is_generic() {
+        let rows: Vec<ProbeRow> = ["sst.a.com", "sst.b.com", "www.c.com", "www.d.com"]
+            .iter()
+            .flat_map(|h| sgtm(h))
+            .collect();
+        let clusters = cluster(&rows, member(&["sst.a.com", "sst.b.com"]));
+        assert_eq!(clusters[0].label(3, 2), Label::Generic);
+        assert_eq!(clusters[0].label(3, 3), Label::Plain);
+        assert_eq!(clusters[0].samples(5), Vec::<&str>::new());
     }
 
     #[test]
