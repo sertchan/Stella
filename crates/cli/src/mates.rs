@@ -2,17 +2,20 @@ use crate::ctx::{Ctx, Out};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
 
+pub const DEFAULT_MAX_SHARE: usize = 25;
+pub const DEFAULT_PICK_SHARE: f64 = 0.5;
+
 #[derive(clap::Args)]
 pub struct Args {
     #[arg(
         long,
-        default_value_t = 25,
+        default_value_t = DEFAULT_MAX_SHARE,
         help = "Skip a name server, SOA mailbox or TXT token shared by more zones than this"
     )]
     max_share: usize,
     #[arg(
         long,
-        default_value_t = 0.5,
+        default_value_t = DEFAULT_PICK_SHARE,
         help = "Share of the zones behind one value that must be pick zones"
     )]
     min_pick_share: f64,
@@ -179,7 +182,35 @@ pub fn mates(
     out
 }
 
-pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
+pub fn zones(ctx: &Ctx) -> Result<Vec<String>> {
+    let rows = edges(ctx)?;
+    let pick_zones = pick_zones(ctx)?;
+    let mut out: Vec<String> = mates(
+        &rows,
+        &pick_zones,
+        DEFAULT_MAX_SHARE,
+        DEFAULT_PICK_SHARE,
+        |h| ctx.regdom(h),
+    )
+    .into_iter()
+    .map(|m| m.zone)
+    .collect::<FxHashSet<_>>()
+    .into_iter()
+    .collect();
+    out.sort_unstable();
+    Ok(out)
+}
+
+fn pick_zones(ctx: &Ctx) -> Result<FxHashSet<String>> {
+    Ok(ctx
+        .store
+        .all("SELECT DISTINCT host FROM hit WHERE verdict = 'PICK'")?
+        .iter()
+        .map(|h| ctx.regdom(h))
+        .collect())
+}
+
+fn edges(ctx: &Ctx) -> Result<Vec<(String, String, String)>> {
     let mut rows: Vec<(String, String, String)> = ctx
         .store
         .rows("SELECT zone, kind, value FROM zonedns")?
@@ -199,12 +230,12 @@ pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
         rows.push((ctx.regdom(&r[0]), "cert".into(), r[0].clone()));
         rows.push((ctx.regdom(san), "cert".into(), r[0].clone()));
     }
-    let pick_zones: FxHashSet<String> = ctx
-        .store
-        .all("SELECT DISTINCT host FROM hit WHERE verdict = 'PICK'")?
-        .iter()
-        .map(|h| ctx.regdom(h))
-        .collect();
+    Ok(rows)
+}
+
+pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
+    let rows = edges(ctx)?;
+    let pick_zones = pick_zones(ctx)?;
     let found = mates(
         &rows,
         &pick_zones,

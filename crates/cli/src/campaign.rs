@@ -143,7 +143,18 @@ async fn expand(ctx: &mut Ctx, args: &Args, since: i64) -> Result<()> {
         picks.len(),
         zones.len()
     );
-    let passive: Vec<String> = zones.iter().take(args.passive_zones).cloned().collect();
+    let mut passive: Vec<String> = zones.clone();
+    let mates = crate::mates::zones(ctx)?;
+    eprintln!(
+        "campaign: {} zones share dns, tags or certificates with pick zones",
+        mates.len()
+    );
+    passive.extend(
+        mates
+            .into_iter()
+            .filter(|z| !known.contains(z) && seen.insert(z.clone())),
+    );
+    passive.truncate(args.passive_zones);
     let ct: Vec<String> = zones.iter().take(args.ct_zones).cloned().collect();
     feeds::passive_zones(ctx, passive, 4).await?;
     source::ct_zones(ctx, ct, 4, false).await
