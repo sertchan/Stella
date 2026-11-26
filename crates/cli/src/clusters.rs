@@ -22,6 +22,11 @@ pub struct Args {
         help = "Print the hosts of one cluster instead"
     )]
     show: Option<String>,
+    #[arg(
+        long,
+        help = "Merge clusters that differ on one path while the other paths still differ among themselves"
+    )]
+    loose: bool,
     #[arg(long, default_value_t = 5, help = "Uncovered sample hosts per cluster")]
     samples: usize,
     #[arg(
@@ -201,20 +206,89 @@ fn describe(slots: &[String]) -> String {
         .join(" ")
 }
 
+fn kind(t: &str) -> &str {
+    t.rsplit_once(':').map_or(t, |(k, _)| k)
+}
+
+fn merge_loose<'a>(groups: Vec<(Vec<String>, Vec<&'a str>)>) -> Vec<(Vec<String>, Vec<&'a str>)> {
+    let mut parent: Vec<usize> = (0..groups.len()).collect();
+    fn root(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    let mut seen: FxHashMap<(usize, Vec<&str>), usize> = FxHashMap::default();
+    for (gi, (slots, _)) in groups.iter().enumerate() {
+        for i in 0..slots.len() {
+            let rest: Vec<&str> = slots
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i)
+                .map(|(_, t)| t.as_str())
+                .collect();
+            let kinds: FxHashSet<&str> = rest
+                .iter()
+                .filter(|t| **t != "-")
+                .map(|t| kind(t))
+                .collect();
+            if kinds.len() < 2 {
+                continue;
+            }
+            if let Some(&other) = seen.get(&(i, rest.clone())) {
+                let (a, b) = (root(&mut parent, gi), root(&mut parent, other));
+                parent[a] = b;
+            } else {
+                seen.insert((i, rest), gi);
+            }
+        }
+    }
+    let mut merged: FxHashMap<usize, (Vec<String>, Vec<&'a str>)> = FxHashMap::default();
+    for (gi, (slots, hosts)) in groups.into_iter().enumerate() {
+        let r = root(&mut parent, gi);
+        match merged.get_mut(&r) {
+            Some((s, h)) => {
+                for (a, b) in s.iter_mut().zip(&slots) {
+                    if a != b {
+                        *a = String::from("*");
+                    }
+                }
+                h.extend(hosts);
+            }
+            None => {
+                merged.insert(r, (slots, hosts));
+            }
+        }
+    }
+    merged.into_values().collect()
+}
+
+#[cfg(test)]
 pub fn cluster(rows: &[ProbeRow], member: impl Fn(&str) -> Member) -> Vec<Cluster> {
+    cluster_with(rows, false, member)
+}
+
+pub fn cluster_with(
+    rows: &[ProbeRow],
+    loose: bool,
+    member: impl Fn(&str) -> Member,
+) -> Vec<Cluster> {
     let mut groups: FxHashMap<Vec<String>, Vec<&str>> = FxHashMap::default();
     for (host, slots) in signatures(rows) {
         groups.entry(slots).or_default().push(host);
+    }
+    let mut groups: Vec<(Vec<String>, Vec<&str>)> = groups.into_iter().collect();
+    if loose {
+        groups = merge_loose(groups);
     }
     let mut out: Vec<Cluster> = groups
         .into_iter()
         .map(|(slots, mut hosts)| {
             hosts.sort_unstable();
-            let answered = || slots.iter().filter(|t| *t != "-");
-            let kinds: FxHashSet<&str> = answered()
-                .map(|t| t.rsplit_once(':').map_or(t.as_str(), |(kind, _)| kind))
-                .collect();
-            let bodyless = answered().all(|t| t.ends_with(':'));
+            let answered = || slots.iter().filter(|t| *t != "-" && *t != "*");
+            let kinds: FxHashSet<&str> = answered().map(|t| kind(t)).collect();
+            let bodyless = !slots.iter().any(|t| t == "*") && answered().all(|t| t.ends_with(':'));
             Cluster {
                 id: format!("{:08x}", shape::fnv1a(slots.join("|").as_bytes()) as u32),
                 shape: describe(&slots),
@@ -265,7 +339,7 @@ pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
     let control = ctx
         .store
         .all("SELECT DISTINCT host FROM origin WHERE source = 'control'")?;
-    let clusters = cluster(&rows, |host| {
+    let clusters = cluster_with(&rows, args.loose, |host| {
         let (regdom, listed) = names
             .get(host)
             .cloned()
@@ -465,6 +539,32 @@ mod tests {
         assert_eq!(clusters[0].label(3, 2), Label::Generic);
         assert_eq!(clusters[0].label(3, 3), Label::Plain);
         assert_eq!(clusters[0].samples(5), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn loose_merges_one_path_variants_but_not_generic_sites() {
+        let mut rows: Vec<ProbeRow> = ["s.a.com", "s.b.com"]
+            .iter()
+            .flat_map(|h| sgtm(h))
+            .collect();
+        let mut html = sgtm("s.c.com");
+        html[0] = row("s.c.com", "/", 400, "application/json", "");
+        rows.extend(html);
+        assert_eq!(cluster(&rows, member(&[])).len(), 2);
+        let merged = cluster_with(&rows, true, member(&[]));
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].members.len(), 3);
+        assert!(merged[0].shape.starts_with("/=*:"));
+        let site = |h: &str, home: &str| -> Vec<ProbeRow> {
+            let mut v = nginx_404(h);
+            v[0] = row(h, "/", 200, "text/html", home);
+            v
+        };
+        let generic: Vec<ProbeRow> = site("a.x.com", "<h1>shop one</h1>")
+            .into_iter()
+            .chain(site("b.y.com", "<h1>blog two</h1>"))
+            .collect();
+        assert_eq!(cluster_with(&generic, true, member(&[])).len(), 2);
     }
 
     #[test]
