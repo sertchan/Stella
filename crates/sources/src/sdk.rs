@@ -4,6 +4,8 @@ use std::io::{Cursor, Read};
 pub const ARCHIVE_CAP: usize = 200 * 1024 * 1024;
 const MEMBER_CAP: u64 = 64 * 1024 * 1024;
 const NESTED_DEPTH: u8 = 2;
+const AR_MAGIC: &[u8] = b"!<arch>\n";
+const AR_HEADER: usize = 60;
 const SCANNED: &[&str] = &[
     ".js",
     ".mjs",
@@ -31,6 +33,7 @@ pub enum Package {
     Pypi(String),
     Nuget(String),
     Github { owner: String, repo: String },
+    File(std::path::PathBuf),
 }
 
 fn clean(s: &str) -> bool {
@@ -62,6 +65,10 @@ impl Package {
             "nuget" if clean(rest) && !rest.contains('/') => {
                 Some(Self::Nuget(rest.to_ascii_lowercase()))
             }
+            "file" => {
+                let p = std::path::PathBuf::from(rest);
+                (p.is_absolute() && !rest.contains("..")).then_some(Self::File(p))
+            }
             "github" => {
                 let (o, r) = rest.split_once('/')?;
                 (clean(o) && clean(r) && !r.contains('/')).then(|| Self::Github {
@@ -80,6 +87,7 @@ impl Package {
             Self::Pypi(p) => format!("pypi:{p}"),
             Self::Nuget(p) => format!("nuget:{p}"),
             Self::Github { owner, repo } => format!("github:{owner}/{repo}"),
+            Self::File(p) => format!("file:{}", p.display()),
         }
     }
 
@@ -95,6 +103,7 @@ impl Package {
             Self::Github { owner, repo } => {
                 format!("https://api.github.com/repos/{owner}/{repo}/zipball")
             }
+            Self::File(p) => p.display().to_string(),
         }
     }
 
@@ -139,7 +148,7 @@ impl Package {
                 })
                 .into_iter()
                 .collect(),
-            Self::Github { .. } => Vec::new(),
+            Self::Github { .. } | Self::File(_) => Vec::new(),
         }
     }
 }
@@ -197,6 +206,35 @@ fn scan_zip(data: &[u8], depth: u8, set: &mut FxHashSet<String>) -> bool {
     true
 }
 
+fn scan_ar(data: &[u8], set: &mut FxHashSet<String>) -> bool {
+    let mut pos = AR_MAGIC.len();
+    let mut any = false;
+    while pos + AR_HEADER <= data.len() {
+        let header = &data[pos..pos + AR_HEADER];
+        let name = String::from_utf8_lossy(&header[..16])
+            .trim()
+            .trim_end_matches('/')
+            .to_string();
+        let Some(size) = String::from_utf8_lossy(&header[48..58])
+            .trim()
+            .parse::<usize>()
+            .ok()
+        else {
+            break;
+        };
+        let start = pos + AR_HEADER;
+        let Some(body) = data.get(start..start + size) else {
+            break;
+        };
+        any = true;
+        if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
+            scan_tgz(body, set);
+        }
+        pos = start + size + size % 2;
+    }
+    any
+}
+
 fn scan_tgz(data: &[u8], set: &mut FxHashSet<String>) -> bool {
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(Cursor::new(data)));
     let Ok(entries) = archive.entries() else {
@@ -226,6 +264,8 @@ pub fn hosts_in_archive(data: &[u8]) -> Option<Vec<String>> {
         scan_zip(data, 0, &mut set)
     } else if data.starts_with(&[0x1f, 0x8b]) {
         scan_tgz(data, &mut set)
+    } else if data.starts_with(AR_MAGIC) {
+        scan_ar(data, &mut set)
     } else {
         false
     };
@@ -368,10 +408,32 @@ mod tests {
         }
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         gz.write_all(&tar_bytes).expect("gz");
-        assert_eq!(
-            hosts_in_archive(&gz.finish().expect("gz")).expect("tgz"),
-            ["api.track.io"]
-        );
+        let tgz = gz.finish().expect("gz");
+        assert_eq!(hosts_in_archive(&tgz).expect("tgz"), ["api.track.io"]);
         assert!(hosts_in_archive(b"plain text").is_none());
+        let mut ipk = b"!<arch>\n".to_vec();
+        for (name, body) in [("debian-binary", &b"2.0\n"[..]), ("data.tar.gz", &tgz[..])] {
+            ipk.extend_from_slice(
+                format!(
+                    "{name:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
+                    0,
+                    0,
+                    0,
+                    100644,
+                    body.len()
+                )
+                .as_bytes(),
+            );
+            ipk.extend_from_slice(body);
+            if body.len() % 2 == 1 {
+                ipk.push(b'\n');
+            }
+        }
+        assert_eq!(hosts_in_archive(&ipk).expect("ipk"), ["api.track.io"]);
+        assert!(matches!(
+            Package::parse("file:/srv/tv/app.ipk"),
+            Some(Package::File(_))
+        ));
+        assert!(Package::parse("file:relative.ipk").is_none());
     }
 }

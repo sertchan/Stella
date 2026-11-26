@@ -583,6 +583,13 @@ async fn sdk_hosts(
     pkg: &sdk::Package,
     dir: std::path::PathBuf,
 ) -> Option<Vec<String>> {
+    if let sdk::Package::File(p) = pkg {
+        let p = p.clone();
+        return tokio::task::spawn_blocking(move || sdk::hosts_in_archive(&std::fs::read(p).ok()?))
+            .await
+            .ok()
+            .flatten();
+    }
     let urls = match pkg {
         sdk::Package::Github { .. } => vec![pkg.index_url()],
         _ => {
