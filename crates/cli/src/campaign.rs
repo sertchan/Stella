@@ -82,6 +82,8 @@ fn picks_since(ctx: &Ctx, since: i64, limit: usize) -> Result<Vec<(String, Strin
         .collect())
 }
 
+static STAGES: std::sync::Mutex<Vec<(&'static str, f64)>> = std::sync::Mutex::new(Vec::new());
+
 struct Stage(&'static str, Instant);
 
 impl Stage {
@@ -93,6 +95,10 @@ impl Stage {
 
 impl Drop for Stage {
     fn drop(&mut self) {
+        let secs = self.1.elapsed().as_secs_f64();
+        if let Ok(mut s) = STAGES.lock() {
+            s.push((self.0, secs));
+        }
         eprintln!(
             "campaign: {} done in {:.1}s",
             self.0,
@@ -178,10 +184,45 @@ async fn twins_of_picks(ctx: &mut Ctx, args: &Args, since: i64) -> Result<usize>
     twins::verify(ctx, &args.hunt.dns, &args.hunt.probe, rows).await
 }
 
-pub async fn run(ctx: &mut Ctx, mut args: Args) -> Result<()> {
-    args.hunt.tag.clear();
+fn log_run(ctx: &Ctx, start_at: i64, secs: f64, outcome: &str) -> Result<()> {
+    let stages = STAGES
+        .lock()
+        .map(|mut s| std::mem::take(&mut *s))
+        .unwrap_or_default();
+    let tx = ctx.store.conn.unchecked_transaction()?;
+    for (seq, (stage, secs)) in stages.iter().enumerate() {
+        tx.execute(
+            "INSERT OR REPLACE INTO run VALUES(?1, ?2, ?3, ?4, '')",
+            rusqlite::params![start_at, seq as i64, stage, secs],
+        )?;
+    }
+    tx.execute(
+        "INSERT OR REPLACE INTO run VALUES(?1, ?2, 'total', ?3, ?4)",
+        rusqlite::params![start_at, stages.len() as i64, secs, outcome],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
+pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     let started = Instant::now();
     let start_at = stella_core::now();
+    let result = campaign(ctx, args, started, start_at).await;
+    let outcome = match &result {
+        Ok(summary) => summary.clone(),
+        Err(e) => format!("error: {e}"),
+    };
+    log_run(ctx, start_at, started.elapsed().as_secs_f64(), &outcome)?;
+    result.map(|_| ())
+}
+
+async fn campaign(
+    ctx: &mut Ctx,
+    mut args: Args,
+    started: Instant,
+    start_at: i64,
+) -> Result<String> {
+    args.hunt.tag.clear();
     let since = last_run(ctx);
     ctx::quiet(!args.verbose);
     if !args.offline {
@@ -223,10 +264,13 @@ pub async fn run(ctx: &mut Ctx, mut args: Args) -> Result<()> {
     for r in stats::table(ctx)? {
         eprintln!("{}", r.join("\t"));
     }
+    let summary = format!(
+        "hunt picks={picks} twin picks={twins} lowered by audit={lowered} new hits={}",
+        fresh.len()
+    );
     eprintln!(
-        "campaign: hunt picks={picks} twin picks={twins} lowered by audit={lowered} new hits={} secs={:.1}",
-        fresh.len(),
+        "campaign: {summary} secs={:.1}",
         started.elapsed().as_secs_f64()
     );
-    Ok(())
+    Ok(summary)
 }

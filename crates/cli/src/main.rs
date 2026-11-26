@@ -86,7 +86,7 @@ enum Cmd {
     )]
     Campaign(campaign::Args),
     #[command(about = "Names, resolutions, probes and hits per source")]
-    Stats,
+    Stats(stats::Args),
     #[command(about = "Group probed hosts that answer the same way and show the uncovered ones")]
     Clusters(clusters::Args),
     #[command(about = "Keep candidates that answer exactly like their listed seed or sibling")]
@@ -126,7 +126,7 @@ fn main() -> Result<()> {
             Cmd::Audit(a) => audit::run(&mut ctx, a).await,
             Cmd::Breakage(a) => breakage::run(&mut ctx, a).await,
             Cmd::Campaign(a) => campaign::run(&mut ctx, a).await,
-            Cmd::Stats => stats::run(&ctx),
+            Cmd::Stats(a) => stats::run(&ctx, a),
             Cmd::Clusters(a) => clusters::run(&ctx, a),
             Cmd::Twins(a) => twins::run(&mut ctx, a).await,
             Cmd::Review(a) => review::review(&ctx, a),

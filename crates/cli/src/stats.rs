@@ -62,9 +62,33 @@ pub fn table(ctx: &Ctx) -> Result<Vec<Vec<String>>> {
     Ok(out)
 }
 
-pub fn run(ctx: &Ctx) -> Result<()> {
+#[derive(clap::Args)]
+pub struct Args {
+    #[arg(
+        long,
+        help = "List past campaign runs with the time of each stage instead"
+    )]
+    runs: bool,
+    #[arg(long, default_value_t = 10, help = "Campaign runs to list with --runs")]
+    last: usize,
+}
+
+pub fn runs(ctx: &Ctx, last: usize) -> Result<Vec<Vec<String>>> {
+    ctx.store.rows(&format!(
+        "SELECT datetime(started, 'unixepoch'), seq, stage, printf('%.1f', secs), detail FROM run
+         WHERE started IN (SELECT DISTINCT started FROM run ORDER BY started DESC LIMIT {last})
+         ORDER BY started DESC, seq"
+    ))
+}
+
+pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
     let mut out = Out::new();
-    for r in table(ctx)? {
+    let rows = if args.runs {
+        runs(ctx, args.last)?
+    } else {
+        table(ctx)?
+    };
+    for r in rows {
         let cols: Vec<&str> = r.iter().map(String::as_str).collect();
         out.row(&cols);
     }

@@ -116,7 +116,9 @@ pub struct Store {
 
 const PROBE_DIGEST: &str = "ALTER TABLE probe ADD COLUMN digest TEXT NOT NULL DEFAULT '';";
 
-const MIGRATIONS: &[&str] = &[SCHEMA, PROBE_DIGEST];
+const RUN_LOG: &str = "CREATE TABLE IF NOT EXISTS run(started INTEGER NOT NULL, seq INTEGER NOT NULL, stage TEXT NOT NULL, secs REAL NOT NULL, detail TEXT NOT NULL, PRIMARY KEY(started, seq)) WITHOUT ROWID;";
+
+const MIGRATIONS: &[&str] = &[SCHEMA, PROBE_DIGEST, RUN_LOG];
 
 pub fn migrate(conn: &Connection) -> Result<i64> {
     let mut version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
