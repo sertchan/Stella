@@ -21,7 +21,7 @@ pub struct Args {
     min_pick_share: f64,
 }
 
-const SHARED_DNS: &[&str] = &[
+pub const SHARED_DNS: &[&str] = &[
     "akam.net",
     "akamai.com",
     "akamaiedge.net",
