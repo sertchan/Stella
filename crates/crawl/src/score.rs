@@ -104,6 +104,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn each_signal_adds_one_point_only_above_its_share() {
+        let score = |reqs: &[(&str, &str, &str)]| {
+            let mut s = Scorer::default();
+            for (site, method, url) in reqs {
+                s.add(site, method, url);
+            }
+            s.finish().into_iter().map(|x| x.score).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            score(&[
+                ("a", "GET", "https://h.io/x"),
+                ("b", "GET", "https://h.io/y")
+            ]),
+            [0]
+        );
+        assert_eq!(
+            score(&[
+                ("a", "POST", "https://h.io/x"),
+                ("b", "GET", "https://h.io/y")
+            ]),
+            [1]
+        );
+        assert_eq!(
+            score(&[
+                ("a", "GET", "https://h.io/x?uid=1"),
+                ("b", "GET", "https://h.io/pixel.gif"),
+            ]),
+            [2]
+        );
+        assert_eq!(
+            score(&[
+                ("a", "GET", "https://h.io/x?uid=1"),
+                ("a", "GET", "https://h.io/a"),
+                ("a", "GET", "https://h.io/b"),
+                ("b", "GET", "https://h.io/c"),
+            ]),
+            [0]
+        );
+        assert!(score(&[("a", "POST", "https://solo.io/collect?uid=1")]).is_empty());
+        assert!(score(&[("a", "GET", "not a url"), ("b", "GET", "")]).is_empty());
+    }
+
+    #[test]
     fn scores_collectors_above_assets() {
         let mut s = Scorer::default();
         for site in ["a", "b", "c", "d", "e"] {
