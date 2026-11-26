@@ -1863,6 +1863,7 @@ dependencies = [
  "anyhow",
  "futures-util",
  "memchr",
+ "rustc-hash",
  "stella-core",
  "stella-net",
  "tokio",

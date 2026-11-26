@@ -258,7 +258,7 @@ pub async fn probe(
         if !p.answered() {
             let why = p.fails.last().map_or("no-answer", |f| f.as_str());
             *st.dead.entry(why).or_default() += 1;
-            return;
+            return false;
         }
         st.answered += 1;
         if p.fails.contains(&stella_net::tls::Fail::TlsReset) {
@@ -287,8 +287,10 @@ pub async fn probe(
         }
         let rd = ctx.psl.icann_regdom_or_self(&p.host);
         let allowed = ctx.allowed(&p.host);
+        let mut hit = false;
         for mut h in rules::classify(&p, rd) {
             apply_allow(&mut h, allowed);
+            hit |= h.verdict != rules::DROP;
             on_hit(&p, &h);
             w.send(Row::Hit {
                 host: p.host.clone(),
@@ -297,6 +299,7 @@ pub async fn probe(
                 verdict: h.verdict.to_string(),
             });
         }
+        hit
     })
     .await;
     st

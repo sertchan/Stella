@@ -1,6 +1,8 @@
+use rustc_hash::FxHashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use stella_core::progress::{self, Progress};
 use stella_net::http::{Conn, Resp};
 use stella_net::limit::Limiter;
 use stella_net::tls::{self, Fail};
@@ -367,8 +369,15 @@ pub async fn probe_all(
     prober: &Prober,
     items: Vec<(String, IpAddr, Battery)>,
     concurrency: usize,
-    mut on_result: impl FnMut(HostProbe),
+    mut on_result: impl FnMut(HostProbe) -> bool,
 ) {
+    let mut progress = Progress::new("probe", items.len());
+    let mut started: FxHashMap<tokio::task::Id, (String, std::time::Instant)> =
+        FxHashMap::default();
+    let (mut done, mut hits) = (0usize, 0usize);
+    let mut tick = tokio::time::interval(progress::EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    tick.reset();
     let mut set = JoinSet::new();
     let mut it = items.into_iter();
     loop {
@@ -377,12 +386,30 @@ pub async fn probe_all(
                 break;
             };
             let p = prober.clone();
-            set.spawn(async move { p.probe(&host, ip, battery).await });
+            let name = host.clone();
+            let h = set.spawn(async move { p.probe(&host, ip, battery).await });
+            started.insert(h.id(), (name, std::time::Instant::now()));
         }
-        match set.join_next().await {
-            Some(Ok(r)) => on_result(r),
-            Some(Err(_)) => {}
-            None => break,
+        tokio::select! {
+            next = set.join_next_with_id() => match next {
+                Some(Ok((id, r))) => {
+                    started.remove(&id);
+                    done += 1;
+                    hits += usize::from(on_result(r));
+                }
+                Some(Err(e)) => {
+                    started.remove(&e.id());
+                    done += 1;
+                }
+                None => break,
+            },
+            _ = tick.tick() => {
+                let slow = progress::slowest(
+                    started.values().map(|(h, t)| (h.as_str(), *t)),
+                    progress::SLOWEST,
+                );
+                progress.print(done, set.len(), Some(hits), &slow);
+            }
         }
     }
 }

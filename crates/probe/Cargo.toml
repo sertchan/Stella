@@ -9,6 +9,7 @@ anyhow.workspace = true
 futures-util.workspace = true
 memchr.workspace = true
 stella-core.workspace = true
+rustc-hash.workspace = true
 stella-net.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true

@@ -132,6 +132,7 @@ pub async fn verify(
         if let Some(t) = rules::html_app(&p) {
             app.insert(p.host.clone(), t);
         }
+        false
     })
     .await;
     let same: Vec<&(String, String)> = live
