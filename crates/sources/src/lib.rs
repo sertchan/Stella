@@ -3,6 +3,7 @@ pub mod audit;
 pub mod cname;
 pub mod container;
 pub mod ct;
+pub mod extension;
 pub mod labels;
 pub mod pivot;
 pub mod scripts;
