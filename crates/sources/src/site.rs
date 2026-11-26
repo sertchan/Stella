@@ -28,7 +28,38 @@ pub const HEADERS: &[&str] = &[
     "nel",
     "reporting-endpoints",
     "link",
+    "timing-allow-origin",
 ];
+
+static LINK_TAG: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?i)<link\b[^>]*>"#).expect("LINK_TAG regex"));
+static LINK_REL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)\brel\s*=\s*["']?\s*(preconnect|dns-prefetch)\b"#).expect("LINK_REL regex")
+});
+static LINK_HREF: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)\bhref\s*=\s*["']?(?:https?:)?//([a-z0-9.-]+)"#).expect("LINK_HREF regex")
+});
+
+pub fn resource_hints(body: &[u8]) -> Vec<(&'static str, String)> {
+    let mut out = Vec::new();
+    for tag in LINK_TAG.find_iter(body) {
+        let tag = tag.as_bytes();
+        let Some(rel) = LINK_REL.captures(tag).and_then(|c| c.get(1)) else {
+            continue;
+        };
+        let kind = if rel.as_bytes().eq_ignore_ascii_case(b"preconnect") {
+            "preconnect"
+        } else {
+            "dns-prefetch"
+        };
+        for h in hosts_in(tag, &LINK_HREF, 1) {
+            out.push((kind, h));
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
 
 #[derive(Default, Debug)]
 pub struct Finds {
@@ -88,7 +119,7 @@ pub async fn mine(client: &reqwest::Client, domain: &str) -> Option<Finds> {
             .chain(crate::vendors::pixel_ids(&page.body))
             .collect(),
         inline: inline(&page.body),
-        headers: Vec::new(),
+        headers: resource_hints(&page.body),
     };
     for name in HEADERS {
         for v in page.headers.get_all(*name) {
@@ -103,6 +134,31 @@ pub async fn mine(client: &reqwest::Client, domain: &str) -> Option<Finds> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_preconnect_and_dns_prefetch_hints() {
+        let page = br#"<head><link rel="preconnect" href="https://sst.shop.com" crossorigin>
+            <link href='//cdn.vendor.io' rel='dns-prefetch'>
+            <LINK REL=preconnect HREF=https://Fonts.Gstatic.com>
+            <link rel="stylesheet" href="https://css.shop.com/a.css">
+            <link rel="preload" href="https://img.shop.com/a.png"></head>"#;
+        assert_eq!(
+            resource_hints(page),
+            [
+                ("dns-prefetch", "cdn.vendor.io".to_string()),
+                ("preconnect", "fonts.gstatic.com".to_string()),
+                ("preconnect", "sst.shop.com".to_string()),
+            ]
+        );
+        let tao: Vec<String> = header_hosts(
+            "timing-allow-origin",
+            b"https://www.shop.com, https://m.shop.com",
+        )
+        .into_iter()
+        .map(|(_, h)| h)
+        .collect();
+        assert_eq!(tao, ["m.shop.com", "www.shop.com"]);
+    }
 
     #[test]
     fn mines_report_and_link_headers_and_escaped_urls() {
