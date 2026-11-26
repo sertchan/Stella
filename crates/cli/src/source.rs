@@ -159,6 +159,10 @@ enum Cmd {
         limit: usize,
     },
     #[command(
+        about = "Ad, analytics, marketing and tag manager domains that HTTP Archive data assigns to third party entities"
+    )]
+    HttpArchive,
+    #[command(
         about = "Hosts in pages, scripts or reports given as URLs or files on stdin, defanged names included"
     )]
     Extract,
@@ -489,6 +493,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         Cmd::Cmp { par } => crate::feeds::cmp(ctx, par).await?,
         Cmd::Scripts { par } => crate::feeds::scripts(ctx, par).await?,
         Cmd::Extract => crate::feeds::extract(ctx).await?,
+        Cmd::HttpArchive => crate::feeds::http_archive(ctx).await?,
         Cmd::SdkIndex { limit } => crate::feeds::sdk_index(ctx, limit).await?,
         Cmd::GithubCode { par } => crate::feeds::github_code(ctx, par).await?,
         Cmd::Sdk { par } => crate::feeds::sdks(ctx, par).await?,

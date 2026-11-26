@@ -4,7 +4,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::time::{Duration, Instant};
 use stella_core::store::Row;
 use stella_net::client::{self, Options};
-use stella_sources::{adtech, code, extension, scripts, sdk, vendors};
+use stella_sources::{adtech, code, extension, httparchive, scripts, sdk, vendors};
 use tokio::task::JoinSet;
 
 const PREBID_CAP: u64 = 400 * 1024 * 1024;
@@ -857,6 +857,46 @@ pub async fn sdk_index(ctx: &mut Ctx, limit: usize) -> Result<()> {
         categories.len(),
         details.len(),
         coords.len(),
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+const HTTPARCHIVE_CAP: usize = 64 * 1024 * 1024;
+
+pub async fn http_archive(ctx: &mut Ctx) -> Result<()> {
+    let started = Instant::now();
+    let c = web(120)?;
+    let latest = client::fetch(&c, httparchive::LATEST, 1024 * 1024).await?;
+    let url = httparchive::tarball_url(&latest.body)
+        .ok_or_else(|| anyhow::anyhow!("third-party-web: no tarball in the npm record"))?;
+    let tgz = client::fetch(&c, &url, HTTPARCHIVE_CAP).await?;
+    let json = httparchive::entities_json(&tgz.body)
+        .ok_or_else(|| anyhow::anyhow!("third-party-web: no entities.json in {url}"))?;
+    let all = httparchive::entries(&json);
+    let known = ctx.known();
+    let fresh: Vec<&httparchive::Entry> = all
+        .iter()
+        .filter(|e| !known.contains(&e.domain) && real_host(ctx, &e.domain))
+        .collect();
+    let w = ctx.store.writer()?;
+    let mut out = Out::new();
+    for e in &fresh {
+        let shape = if e.zone { "zone" } else { "host" };
+        out.row(&[&e.domain, shape, &e.category, &e.entity]);
+        w.send(Row::Origin {
+            host: e.domain.clone(),
+            source: "httparchive".into(),
+            detail: format!("{} {}", e.category, e.entity),
+        });
+    }
+    drop(out);
+    w.finish()?;
+    eprintln!(
+        "third-party-web: domains={} unlisted={} zones={} secs={:.1}",
+        all.len(),
+        fresh.len(),
+        fresh.iter().filter(|e| e.zone).count(),
         started.elapsed().as_secs_f64()
     );
     Ok(())
