@@ -22,6 +22,7 @@ const SCANNED: &[&str] = &[
     ".kt",
     ".java",
     ".plist",
+    ".xcprivacy",
     ".txt",
     ".dex",
 ];
@@ -34,6 +35,7 @@ pub enum Package {
     Nuget(String),
     Github { owner: String, repo: String },
     File(std::path::PathBuf),
+    Pod(String),
 }
 
 fn clean(s: &str) -> bool {
@@ -65,6 +67,7 @@ impl Package {
             "nuget" if clean(rest) && !rest.contains('/') => {
                 Some(Self::Nuget(rest.to_ascii_lowercase()))
             }
+            "pod" if clean(rest) && !rest.contains('/') => Some(Self::Pod(rest.to_string())),
             "file" => {
                 let p = std::path::PathBuf::from(rest);
                 (p.is_absolute() && !rest.contains("..")).then_some(Self::File(p))
@@ -88,6 +91,7 @@ impl Package {
             Self::Nuget(p) => format!("nuget:{p}"),
             Self::Github { owner, repo } => format!("github:{owner}/{repo}"),
             Self::File(p) => format!("file:{}", p.display()),
+            Self::Pod(p) => format!("pod:{p}"),
         }
     }
 
@@ -104,6 +108,7 @@ impl Package {
                 format!("https://api.github.com/repos/{owner}/{repo}/zipball")
             }
             Self::File(p) => p.display().to_string(),
+            Self::Pod(p) => pod_versions_url(p),
         }
     }
 
@@ -148,9 +153,90 @@ impl Package {
                 })
                 .into_iter()
                 .collect(),
+            Self::Pod(p) => pod_latest(&String::from_utf8_lossy(index), p)
+                .map(|v| vec![pod_spec_url(p, &v)])
+                .unwrap_or_default(),
             Self::Github { .. } | Self::File(_) => Vec::new(),
         }
     }
+}
+
+fn pod_shard(name: &str) -> [char; 3] {
+    let h: Vec<char> = stella_core::md5::hex(name.as_bytes()).chars().collect();
+    [h[0], h[1], h[2]]
+}
+
+pub fn pod_versions_url(name: &str) -> String {
+    let [a, b, c] = pod_shard(name);
+    format!("https://cdn.cocoapods.org/all_pods_versions_{a}_{b}_{c}.txt")
+}
+
+pub fn pod_spec_url(name: &str, version: &str) -> String {
+    let [a, b, c] = pod_shard(name);
+    format!("https://cdn.cocoapods.org/Specs/{a}/{b}/{c}/{name}/{version}/{name}.podspec.json")
+}
+
+pub fn pod_latest(versions: &str, name: &str) -> Option<String> {
+    let line = versions
+        .lines()
+        .find(|l| l.split('/').next() == Some(name))?;
+    let last = line
+        .split('/')
+        .skip(1)
+        .filter(|v| !v.contains('-'))
+        .last()?;
+    clean(last).then(|| last.to_string())
+}
+
+pub fn pod_archive_urls(spec: &[u8]) -> Vec<String> {
+    let Some(v) = json(spec) else {
+        return Vec::new();
+    };
+    if let Some(http) = v.pointer("/source/http").and_then(|h| h.as_str()) {
+        return if http.starts_with("https://") {
+            vec![http.to_string()]
+        } else {
+            Vec::new()
+        };
+    }
+    let git = v
+        .pointer("/source/git")
+        .and_then(|g| g.as_str())
+        .unwrap_or_default();
+    let tag = v
+        .pointer("/source/tag")
+        .and_then(|t| t.as_str())
+        .unwrap_or_default();
+    let Some(repo) = git.strip_prefix("https://github.com/") else {
+        return Vec::new();
+    };
+    let repo = repo.trim_end_matches(".git");
+    if tag.is_empty() || !clean(tag) || !clean(repo) {
+        return Vec::new();
+    }
+    vec![format!(
+        "https://codeload.github.com/{repo}/zip/refs/tags/{tag}"
+    )]
+}
+
+pub fn privacy_domains(plist: &[u8]) -> Vec<String> {
+    let text = String::from_utf8_lossy(plist);
+    let Some(start) = text.find("<key>NSPrivacyTrackingDomains</key>") else {
+        return Vec::new();
+    };
+    let rest = &text[start..];
+    let Some(open) = rest.find("<array>") else {
+        return Vec::new();
+    };
+    let end = rest[open..]
+        .find("</array>")
+        .map_or(rest.len(), |e| open + e);
+    rest[open..end]
+        .split("<string>")
+        .skip(1)
+        .filter_map(|s| s.split("</string>").next())
+        .filter_map(|d| stella_core::name::normalize(d.trim()))
+        .collect()
 }
 
 fn json(b: &[u8]) -> Option<serde_json::Value> {
@@ -200,6 +286,9 @@ fn scan_zip(data: &[u8], depth: u8, set: &mut FxHashSet<String>) -> bool {
                 scan_zip(&buf, depth + 1, set);
             }
             continue;
+        }
+        if name.to_ascii_lowercase().ends_with("privacyinfo.xcprivacy") {
+            set.extend(privacy_domains(&buf));
         }
         set.extend(crate::scripts::hosts_in_script(&buf));
     }
@@ -435,5 +524,30 @@ mod tests {
             Some(Package::File(_))
         ));
         assert!(Package::parse("file:relative.ipk").is_none());
+        assert_eq!(
+            pod_versions_url("AppsFlyerFramework"),
+            format!("https://cdn.cocoapods.org/all_pods_versions_{}.txt", {
+                let h = stella_core::md5::hex(b"AppsFlyerFramework");
+                format!("{}_{}_{}", &h[0..1], &h[1..2], &h[2..3])
+            })
+        );
+        assert_eq!(
+            pod_latest(
+                "Other/1.0\nAppsFlyerFramework/6.0.0/6.15.1/6.16.0-beta\n",
+                "AppsFlyerFramework"
+            )
+            .as_deref(),
+            Some("6.15.1")
+        );
+        assert_eq!(
+            pod_archive_urls(br#"{"source":{"git":"https://github.com/AppsFlyerSDK/AppsFlyerFramework.git","tag":"6.15.1"}}"#),
+            ["https://codeload.github.com/AppsFlyerSDK/AppsFlyerFramework/zip/refs/tags/6.15.1"]
+        );
+        assert_eq!(
+            pod_archive_urls(br#"{"source":{"http":"https://cdn.vendor.io/sdk.zip"}}"#),
+            ["https://cdn.vendor.io/sdk.zip"]
+        );
+        let plist = br#"<plist><dict><key>NSPrivacyTracking</key><true/><key>NSPrivacyTrackingDomains</key><array><string>t.vendor.io</string><string> Ads.Vendor.io </string></array><key>Other</key><array><string>no.io</string></array></dict></plist>"#;
+        assert_eq!(privacy_domains(plist), ["t.vendor.io", "ads.vendor.io"]);
     }
 }
