@@ -5,8 +5,10 @@ use std::sync::LazyLock;
 const CONTAINER_CAP: usize = 4 * 1024 * 1024;
 
 static SGTM: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:server_container_url|transport_url)[^h]{0,40}https?:\\?/\\?/([a-z0-9.-]+)")
-        .expect("SGTM regex")
+    Regex::new(
+        r"(?i)(?:server_container_url|transport_url)[^}\]]{0,60}?https?:\\?/\\?/([a-z0-9.-]+)",
+    )
+    .expect("SGTM regex")
 });
 static HOSTS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)https?:\\?/\\?/([a-z0-9-]+(?:\.[a-z0-9-]+)+)").expect("HOSTS regex")
@@ -74,5 +76,10 @@ mod tests {
         let c = super::parse(js);
         assert_eq!(c.sgtm, ["sst.shop.com"]);
         assert_eq!(c.hosts, ["sst.shop.com", "www.google-analytics.com"]);
+        let keyed =
+            br#"["map","key","transport_url","vtp_hash","x1","value","https:\/\/gtm.shop.de"]"#;
+        assert_eq!(super::parse(keyed).sgtm, ["gtm.shop.de"]);
+        let apart = br#"{"vtp_transport_url":""},{"x":"https:\/\/other.com"}"#;
+        assert!(super::parse(apart).sgtm.is_empty());
     }
 }
