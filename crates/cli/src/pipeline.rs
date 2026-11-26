@@ -276,6 +276,7 @@ pub async fn probe(
                 cookies: r.cookies.join(","),
                 length: r.length,
                 head: battery::head(&r.body, if *path == RANDOM { 300 } else { 160 }),
+                digest: stella_core::shape::digest(&r.body, &p.host),
             });
         }
         for san in &p.sans {

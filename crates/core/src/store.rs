@@ -62,6 +62,7 @@ pub enum Row {
         cookies: String,
         length: i64,
         head: String,
+        digest: String,
     },
     Cert {
         host: String,
@@ -113,7 +114,9 @@ pub struct Store {
     path: PathBuf,
 }
 
-const MIGRATIONS: &[&str] = &[SCHEMA];
+const PROBE_DIGEST: &str = "ALTER TABLE probe ADD COLUMN digest TEXT NOT NULL DEFAULT '';";
+
+const MIGRATIONS: &[&str] = &[SCHEMA, PROBE_DIGEST];
 
 pub fn migrate(conn: &Connection) -> Result<i64> {
     let mut version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -252,12 +255,13 @@ fn insert(conn: &Connection, row: Row, at: i64) -> rusqlite::Result<usize> {
             cookies,
             length,
             head,
+            digest,
         } => conn
             .prepare_cached(
-                "INSERT OR REPLACE INTO probe VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                "INSERT OR REPLACE INTO probe(host, path, addr, status, ctype, server, cookies, length, head, at, digest) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             )?
             .execute(params![
-                host, path, addr, status, ctype, server, cookies, length, head, at
+                host, path, addr, status, ctype, server, cookies, length, head, at, digest
             ]),
         Row::Cert { host, san } => conn
             .prepare_cached("INSERT OR IGNORE INTO cert VALUES(?1, ?2)")?
@@ -409,7 +413,20 @@ mod tests {
             regdom: "example.com".into(),
             known: String::new(),
         });
-        assert_eq!(w.finish()?, 1001);
+        w.send(Row::Probe {
+            host: "a.example.com".into(),
+            path: "/".into(),
+            addr: "192.0.2.1".into(),
+            status: 200,
+            ctype: "text/plain".into(),
+            server: String::new(),
+            cookies: String::new(),
+            length: 2,
+            head: "ok".into(),
+            digest: "00ff".into(),
+        });
+        assert_eq!(w.finish()?, 1002);
+        assert_eq!(store.rows("SELECT digest FROM probe")?[0][0], "00ff");
         assert_eq!(store.done("ct")?.len(), 1000);
         assert_eq!(
             store.rows("SELECT host, regdom FROM name")?[0][1],
