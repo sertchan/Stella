@@ -22,6 +22,93 @@ static BARE_HOST: LazyLock<Regex> = LazyLock::new(|| {
         .expect("BARE_HOST regex")
 });
 
+static SOURCE_MAP: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"[/][/][#@]\s*sourceMappingURL=([^\s'"]+)"#).expect("SOURCE_MAP regex")
+});
+
+static SERVICE_WORKER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"serviceWorker\s*\.\s*register\(\s*['"`]([^'"`]+)['"`]"#)
+        .expect("SERVICE_WORKER regex")
+});
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub enum Linked {
+    SourceMap,
+    ServiceWorker,
+}
+
+impl Linked {
+    pub fn source(self) -> &'static str {
+        match self {
+            Linked::SourceMap => "sourcemap",
+            Linked::ServiceWorker => "serviceworker",
+        }
+    }
+}
+
+pub fn resolve(base: &str, rel: &str) -> Option<String> {
+    let base = base.split(['?', '#']).next()?;
+    let (scheme, rest) = base.split_once("://")?;
+    let host_end = rest.find('/').unwrap_or(rest.len());
+    let origin = format!("{scheme}://{}", &rest[..host_end]);
+    if rel.starts_with("https://") || rel.starts_with("http://") {
+        return Some(rel.to_string());
+    }
+    if let Some(r) = rel.strip_prefix("//") {
+        return Some(format!("{scheme}://{r}"));
+    }
+    if rel.starts_with('/') {
+        return Some(format!("{origin}{rel}"));
+    }
+    let dir = &base[..base.rfind('/')? + 1];
+    (dir.len() > origin.len()).then(|| format!("{dir}{rel}"))
+}
+
+pub fn linked(body: &[u8], base: &str) -> Vec<(Linked, String)> {
+    let mut out = Vec::new();
+    for (kind, re) in [
+        (Linked::SourceMap, &SOURCE_MAP),
+        (Linked::ServiceWorker, &SERVICE_WORKER),
+    ] {
+        for c in re.captures_iter(body) {
+            let Some(m) = c.get(1) else { continue };
+            let rel = String::from_utf8_lossy(m.as_bytes());
+            if rel.starts_with("data:") {
+                out.push((kind, rel.into_owned()));
+            } else if let Some(u) = resolve(base, &rel) {
+                out.push((kind, u));
+            }
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+pub fn inline_map(url: &str) -> Option<Vec<u8>> {
+    use base64::Engine;
+    let (_, data) = url.strip_prefix("data:")?.split_once(";base64,")?;
+    base64::engine::general_purpose::STANDARD.decode(data).ok()
+}
+
+pub fn hosts_in_map(body: &[u8]) -> Vec<String> {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return Vec::new();
+    };
+    let mut set: FxHashSet<String> = FxHashSet::default();
+    for s in v["sourcesContent"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|s| s.as_str())
+    {
+        set.extend(hosts_in_script(s.as_bytes()));
+    }
+    let mut out: Vec<String> = set.into_iter().collect();
+    out.sort_unstable();
+    out
+}
+
 pub fn script_url(url: &str) -> bool {
     let path = url.split(['?', '#']).next().unwrap_or(url);
     url.starts_with("https://") && (SCRIPT_URL.is_match(path) || SCRIPT_URL.is_match(url))
@@ -75,6 +162,48 @@ pub fn hosts_in_report(text: &str, listed_tld: impl Fn(&str) -> bool) -> Vec<(St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn follows_source_maps_and_service_workers() {
+        use base64::Engine;
+        let map = br#"{"version":3,"sources":["a.ts"],"sourcesContent":["fetch('https://ev.vendor.io/v1/e')","const h = \"cdn.vendor.io\";"]}"#;
+        let inline = format!(
+            "data:application/json;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(map)
+        );
+        let body = format!(
+            "var a=1;navigator.serviceWorker.register('sw.js',{{scope:'/'}});\n{}{} sourceMappingURL=app.js.map\n{}{} sourceMappingURL={inline}",
+            '/', "/#", '/', "/#"
+        );
+        let got = linked(body.as_bytes(), "https://www.shop.com/static/js/app.js?v=3");
+        assert_eq!(
+            got,
+            [
+                (Linked::SourceMap, inline.clone()),
+                (
+                    Linked::SourceMap,
+                    "https://www.shop.com/static/js/app.js.map".to_string()
+                ),
+                (
+                    Linked::ServiceWorker,
+                    "https://www.shop.com/static/js/sw.js".to_string()
+                ),
+            ]
+        );
+        assert_eq!(
+            hosts_in_map(&inline_map(&inline).expect("inline")),
+            ["cdn.vendor.io", "ev.vendor.io"]
+        );
+        assert_eq!(
+            resolve("https://a.io/x/y.js", "/sw.js").as_deref(),
+            Some("https://a.io/sw.js")
+        );
+        assert_eq!(
+            resolve("https://a.io/y.js", "//cdn.b.io/m.map").as_deref(),
+            Some("https://cdn.b.io/m.map")
+        );
+        assert!(hosts_in_map(b"not json").is_empty());
+    }
 
     #[test]
     fn finds_hosts_in_scripts_and_reports() {

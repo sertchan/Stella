@@ -263,6 +263,7 @@ pub async fn scripts(ctx: &mut Ctx, par: usize) -> Result<()> {
     let total = urls.len();
     let c = web(20)?;
     let w = ctx.store.writer()?;
+    let mut links: FxHashMap<String, (scripts::Linked, String)> = FxHashMap::default();
     let mut seen: FxHashMap<String, (usize, String)> = FxHashMap::default();
     let cc = c.clone();
     each(
@@ -274,6 +275,9 @@ pub async fn scripts(ctx: &mut Ctx, par: usize) -> Result<()> {
         },
         |u, body| {
             if let Some(b) = body {
+                for (kind, l) in scripts::linked(&b, &u) {
+                    links.entry(l).or_insert((kind, u.clone()));
+                }
                 for h in scripts::hosts_in_script(&b) {
                     let e = seen.entry(h).or_insert_with(|| (0, u.clone()));
                     e.0 += 1;
@@ -286,7 +290,52 @@ pub async fn scripts(ctx: &mut Ctx, par: usize) -> Result<()> {
         },
     )
     .await;
+    let linked_total = links.len();
+    let mut via: FxHashMap<String, (&'static str, String)> = FxHashMap::default();
+    let (inline, remote): (Vec<_>, Vec<_>) =
+        links.into_iter().partition(|(l, _)| l.starts_with("data:"));
+    let mut found_linked = |kind: scripts::Linked, from: &str, body: &[u8]| {
+        let hosts = match kind {
+            scripts::Linked::SourceMap => scripts::hosts_in_map(body),
+            scripts::Linked::ServiceWorker => scripts::hosts_in_script(body),
+        };
+        for h in hosts {
+            via.entry(h).or_insert((kind.source(), from.to_string()));
+        }
+    };
+    for (l, (kind, from)) in &inline {
+        if let Some(b) = scripts::inline_map(l) {
+            found_linked(*kind, from, &b);
+        }
+    }
+    let kinds: FxHashMap<String, (scripts::Linked, String)> = remote.into_iter().collect();
+    let cc = c.clone();
+    each(
+        kinds.keys().cloned().collect(),
+        par,
+        move |u| {
+            let c = cc.clone();
+            async move {
+                client::fetch(&c, &u, SCRIPT_CAP)
+                    .await
+                    .ok()
+                    .filter(|p| p.status == 200)
+                    .map(|p| p.body)
+            }
+        },
+        |u, body| {
+            if let (Some(b), Some((kind, from))) = (body, kinds.get(&u)) {
+                found_linked(*kind, from, &b);
+            }
+        },
+    )
+    .await;
     let known = ctx.known();
+    let mut linked_rows: Vec<_> = via
+        .into_iter()
+        .filter(|(h, _)| !known.contains(h) && !seen.contains_key(h))
+        .collect();
+    linked_rows.sort_unstable();
     let mut rows: Vec<_> = seen
         .into_iter()
         .filter(|(h, _)| !known.contains(h))
@@ -301,11 +350,20 @@ pub async fn scripts(ctx: &mut Ctx, par: usize) -> Result<()> {
             detail: example.clone(),
         });
     }
+    for (h, (source, from)) in &linked_rows {
+        out.row(&[h, source, from]);
+        w.send(Row::Origin {
+            host: h.clone(),
+            source: (*source).into(),
+            detail: from.clone(),
+        });
+    }
     drop(out);
     w.finish()?;
     eprintln!(
-        "scripts={total} hosts-unlisted={} secs={:.1}",
+        "scripts={total} hosts-unlisted={} linked-files={linked_total} linked-hosts-unlisted={} secs={:.1}",
         rows.len(),
+        linked_rows.len(),
         started.elapsed().as_secs_f64()
     );
     Ok(())
