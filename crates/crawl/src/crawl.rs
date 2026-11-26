@@ -8,6 +8,8 @@ use tokio::sync::{Semaphore, mpsc};
 use tokio::time::Instant;
 
 pub(crate) const CONSENT_JS: &str = include_str!("consent.js");
+pub(crate) const HOOKS_JS: &str = include_str!("hooks.js");
+const BINDING: &str = "__stella";
 const NOISE: &[&str] = &[
     "accounts.google.com",
     "update.googleapis.com",
@@ -38,6 +40,7 @@ pub struct Options {
 pub struct Page {
     pub url: String,
     pub requests: Vec<(String, String)>,
+    pub hooks: rustc_hash::FxHashMap<(String, String, String), usize>,
     pub consent: String,
     pub error: Option<String>,
 }
@@ -63,6 +66,33 @@ pub(crate) async fn wait_for_memory() {
     while mem_available() < MIN_FREE_BYTES {
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
+}
+
+fn host_of(url: &str) -> String {
+    stella_core::name::host_of_url(url)
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default()
+}
+
+pub fn hook(v: &Value) -> Option<(String, String, String)> {
+    if v.get("method").and_then(Value::as_str) != Some("Runtime.bindingCalled")
+        || v.pointer("/params/name").and_then(Value::as_str) != Some(BINDING)
+    {
+        return None;
+    }
+    let payload: Value = serde_json::from_str(v.pointer("/params/payload")?.as_str()?).ok()?;
+    let api = payload["a"].as_str()?;
+    if !matches!(
+        api,
+        "beacon" | "fetch" | "xhr" | "websocket" | "canvas" | "webgl" | "audio"
+    ) {
+        return None;
+    }
+    Some((
+        api.to_string(),
+        host_of(payload["u"].as_str().unwrap_or("")),
+        host_of(payload["s"].as_str().unwrap_or("")),
+    ))
 }
 
 fn record(v: &Value, out: &mut Vec<(String, String)>) {
@@ -101,11 +131,14 @@ async fn drain(
     b: &Browser,
     rx: &mut mpsc::UnboundedReceiver<Value>,
     until: Instant,
-    out: &mut Vec<(String, String)>,
+    page: &mut Page,
 ) {
     while let Ok(Some(v)) = tokio::time::timeout_at(until, rx.recv()).await {
         wake_child(b, &v);
-        record(&v, out);
+        record(&v, &mut page.requests);
+        if let Some(h) = hook(&v) {
+            *page.hooks.entry(h).or_default() += 1;
+        }
     }
 }
 
@@ -113,6 +146,7 @@ pub async fn visit(b: &Browser, url: &str, opts: &Options) -> Page {
     let mut page = Page {
         url: url.to_string(),
         requests: Vec::new(),
+        hooks: rustc_hash::FxHashMap::default(),
         consent: String::new(),
         error: None,
     };
@@ -159,6 +193,19 @@ pub async fn visit(b: &Browser, url: &str, opts: &Options) -> Page {
         let mut rx = b.subscribe(&session);
         b.call(Some(&session), "Network.enable", json!({})).await?;
         b.call(Some(&session), "Page.enable", json!({})).await?;
+        b.call(Some(&session), "Runtime.enable", json!({})).await?;
+        b.call(
+            Some(&session),
+            "Runtime.addBinding",
+            json!({ "name": BINDING }),
+        )
+        .await?;
+        b.call(
+            Some(&session),
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({ "source": HOOKS_JS }),
+        )
+        .await?;
         b.call(
             Some(&session),
             "Target.setAutoAttach",
@@ -169,7 +216,7 @@ pub async fn visit(b: &Browser, url: &str, opts: &Options) -> Page {
         b.notify(&session, "Page.navigate", json!({ "url": url }));
         let mut clicked = Vec::new();
         if opts.consent {
-            drain(b, &mut rx, started + FIRST_CONSENT, &mut page.requests).await;
+            drain(b, &mut rx, started + FIRST_CONSENT, &mut page).await;
             for _ in 0..2 {
                 let r = b
                     .call(
@@ -186,13 +233,13 @@ pub async fn visit(b: &Browser, url: &str, opts: &Options) -> Page {
                 {
                     clicked.push(s);
                 }
-                drain(b, &mut rx, Instant::now() + CONSENT_GAP, &mut page.requests).await;
+                drain(b, &mut rx, Instant::now() + CONSENT_GAP, &mut page).await;
             }
-            drain(b, &mut rx, Instant::now() + opts.after, &mut page.requests).await;
+            drain(b, &mut rx, Instant::now() + opts.after, &mut page).await;
         }
         let end = started + opts.dwell;
         if end > Instant::now() {
-            drain(b, &mut rx, end, &mut page.requests).await;
+            drain(b, &mut rx, end, &mut page).await;
         }
         drop(rx);
         b.forget(&session);
