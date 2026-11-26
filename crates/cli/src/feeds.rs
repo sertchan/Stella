@@ -59,19 +59,25 @@ pub async fn adtech(ctx: &mut Ctx, par: usize, min_intermediary: usize) -> Resul
     let c = web(20)?;
     let w = ctx.store.writer()?;
     let mut systems: FxHashMap<String, usize> = FxHashMap::default();
-    let (mut with_ads, total) = (0usize, sites.len());
+    let (mut with_ads, mut with_app_ads, total) = (0usize, 0usize, sites.len());
     let cc = c.clone();
     each(
         sites,
         par,
         move |s| {
             let c = cc.clone();
-            async move { adtech::well_known(&c, &s, "ads.txt").await }
+            async move {
+                (
+                    adtech::well_known(&c, &s, "ads.txt").await,
+                    adtech::well_known(&c, &s, "app-ads.txt").await,
+                )
+            }
         },
-        |site, body| {
-            if let Some(b) = body {
+        |site, (web, app)| {
+            for (body, count) in [(web, &mut with_ads), (app, &mut with_app_ads)] {
+                let Some(b) = body else { continue };
                 let list = adtech::parse_ads_txt(&String::from_utf8_lossy(&b));
-                with_ads += usize::from(!list.is_empty());
+                *count += usize::from(!list.is_empty());
                 for d in list {
                     *systems.entry(d).or_default() += 1;
                 }
@@ -122,17 +128,39 @@ pub async fn adtech(ctx: &mut Ctx, par: usize, min_intermediary: usize) -> Resul
         .filter(|(z, _)| !known.contains(z))
         .collect();
     rows.sort_unstable_by(|a, b| b.1.1.cmp(&a.1.1).then_with(|| a.0.cmp(&b.0)));
+    let mut attested: FxHashSet<String> = FxHashSet::default();
+    let cc = c.clone();
+    each(
+        rows.iter().map(|(z, _)| z.clone()).collect(),
+        par,
+        move |z| {
+            let c = cc.clone();
+            async move { adtech::well_known(&c, &z, adtech::ATTESTATIONS).await }
+        },
+        |zone, body| {
+            if body.as_deref().is_some_and(adtech::is_attestation) {
+                attested.insert(zone);
+            }
+        },
+    )
+    .await;
     let mut out = Out::new();
     for (zone, (kind, n)) in &rows {
-        out.row(&[zone, kind, &n.to_string()]);
+        let mark = if attested.contains(zone) {
+            "attested"
+        } else {
+            ""
+        };
+        out.row(&[zone, kind, &n.to_string(), mark]);
     }
     drop(out);
     w.finish()?;
     eprintln!(
-        "sites={total} ads.txt={with_ads} ad-systems={} with-sellers.json={} zones={} secs={:.1}",
+        "sites={total} ads.txt={with_ads} app-ads.txt={with_app_ads} ad-systems={} with-sellers.json={} zones={} attested={} secs={:.1}",
         systems.len(),
         sellers.len(),
         rows.len(),
+        attested.len(),
         started.elapsed().as_secs_f64()
     );
     Ok(())

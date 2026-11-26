@@ -47,6 +47,15 @@ pub fn parse_sellers(body: &[u8]) -> Option<Vec<String>> {
     Some(out)
 }
 
+pub const ATTESTATIONS: &str = ".well-known/privacy-sandbox-attestations.json";
+
+pub fn is_attestation(body: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("privacy_sandbox_api_attestations").cloned())
+        .is_some_and(|a| a.is_array())
+}
+
 pub async fn well_known(client: &reqwest::Client, domain: &str, path: &str) -> Option<Vec<u8>> {
     for host in [domain.to_string(), format!("www.{domain}")] {
         let Ok(p) =
@@ -109,6 +118,16 @@ pub fn hosts_in_tarball(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognises_privacy_sandbox_attestations() {
+        let real = br#"{"privacy_sandbox_api_attestations":[{"attestation_version":"2","attestation_parser_version":"2","enrollment_id":"X1","enrollment_site":"https://adnet.com","platform_attestations":[]}]}"#;
+        assert!(is_attestation(real));
+        assert!(!is_attestation(b"<html>not found</html>"));
+        assert!(!is_attestation(
+            br#"{"privacy_sandbox_api_attestations":"x"}"#
+        ));
+    }
 
     #[test]
     fn parses_ads_txt_and_sellers() {
