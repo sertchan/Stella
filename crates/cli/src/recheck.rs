@@ -21,6 +21,8 @@ pub struct Args {
 }
 
 const DAY: i64 = 86_400;
+const STRIKE: &str = "recheck-miss";
+const MAX_MISSED_PERCENT: usize = 30;
 
 pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     recheck(ctx, &args.dns, &args.probe, args.older_than_days)
@@ -60,23 +62,44 @@ pub async fn recheck(
     let prober = probe.prober();
     let st = pipeline::probe(ctx, &w, &prober, items, probe.conc, |_, _| {}).await;
     tokio::task::block_in_place(|| w.flush());
-    let mut stale = 0usize;
-    {
+    let confirmed = ctx.store.all(&format!(
+        "SELECT DISTINCT host FROM hit WHERE verdict = 'PICK' AND at >= {start_at}"
+    ))?;
+    let missed: Vec<&String> = hosts.iter().filter(|h| !confirmed.contains(*h)).collect();
+    let healthy = total == 0 || missed.len() * 100 <= total * MAX_MISSED_PERCENT;
+    let (mut stale, mut first) = (0usize, 0usize);
+    if healthy {
+        let strikes = ctx.store.done(STRIKE)?;
         let tx = ctx.store.conn.unchecked_transaction()?;
         {
-            let mut stmt = tx.prepare(
-                "UPDATE hit SET verdict = 'STALE', evidence = evidence || '; not confirmed at recheck'
+            let mut mark = tx.prepare(
+                "UPDATE hit SET verdict = 'STALE', evidence = evidence || '; not confirmed at two rechecks'
                  WHERE verdict = 'PICK' AND host = ?1 AND at < ?2",
             )?;
+            let mut strike = tx.prepare("INSERT OR REPLACE INTO done VALUES(?1, ?2, ?3)")?;
+            let mut clear = tx.prepare("DELETE FROM done WHERE kind = ?1 AND key = ?2")?;
             for h in &hosts {
-                stale += stmt.execute(params![h, start_at])?;
+                if confirmed.contains(h) {
+                    clear.execute(params![STRIKE, h])?;
+                } else if strikes.contains(h) {
+                    stale += mark.execute(params![h, start_at])?;
+                    clear.execute(params![STRIKE, h])?;
+                } else {
+                    first += 1;
+                    strike.execute(params![STRIKE, h, start_at])?;
+                }
             }
         }
         tx.commit()?;
+    } else {
+        eprintln!(
+            "recheck: {} of {total} picks unconfirmed, more than {MAX_MISSED_PERCENT}%, so this run marks nothing",
+            missed.len()
+        );
     }
     w.finish()?;
     eprintln!(
-        "picks={total} resolving={alive} stale={stale} secs={:.1} {}",
+        "picks={total} resolving={alive} first-miss={first} stale={stale} secs={:.1} {}",
         started.elapsed().as_secs_f64(),
         st.line()
     );
