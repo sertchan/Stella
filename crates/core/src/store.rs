@@ -116,6 +116,13 @@ pub enum Row {
         host: String,
         print: String,
     },
+    Hook {
+        site: String,
+        api: String,
+        target: String,
+        script: String,
+        calls: i64,
+    },
 }
 
 pub struct Store {
@@ -131,7 +138,9 @@ const ZONE_DNS: &str = "CREATE TABLE IF NOT EXISTS zonedns(zone TEXT NOT NULL, k
 
 const TLS_PRINT: &str = "CREATE TABLE IF NOT EXISTS tlsprint(host TEXT PRIMARY KEY, print TEXT NOT NULL) WITHOUT ROWID;";
 
-const MIGRATIONS: &[&str] = &[SCHEMA, PROBE_DIGEST, RUN_LOG, ZONE_DNS, TLS_PRINT];
+const HOOKS: &str = "CREATE TABLE IF NOT EXISTS hook(site TEXT NOT NULL, api TEXT NOT NULL, target TEXT NOT NULL, script TEXT NOT NULL, calls INTEGER NOT NULL, PRIMARY KEY(site, api, target, script)) WITHOUT ROWID;";
+
+const MIGRATIONS: &[&str] = &[SCHEMA, PROBE_DIGEST, RUN_LOG, ZONE_DNS, TLS_PRINT, HOOKS];
 
 pub fn migrate(conn: &Connection) -> Result<i64> {
     let mut version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -321,6 +330,15 @@ fn insert(conn: &Connection, row: Row, at: i64) -> rusqlite::Result<usize> {
         } => conn
             .prepare_cached("INSERT OR IGNORE INTO apk_url VALUES(?1, ?2, ?3, ?4)")?
             .execute(params![pkg, method, url, member]),
+        Row::Hook {
+            site,
+            api,
+            target,
+            script,
+            calls,
+        } => conn
+            .prepare_cached("INSERT INTO hook VALUES(?1, ?2, ?3, ?4, ?5) ON CONFLICT(site, api, target, script) DO UPDATE SET calls = calls + excluded.calls")?
+            .execute(params![site, api, target, script, calls]),
         Row::TlsPrint { host, print } => conn
             .prepare_cached("INSERT OR REPLACE INTO tlsprint VALUES(?1, ?2)")?
             .execute(params![host, print]),

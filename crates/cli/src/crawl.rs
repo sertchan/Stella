@@ -93,6 +93,15 @@ pub async fn crawl(ctx: &mut Ctx, args: CrawlArgs) -> Result<()> {
             errors += 1;
             continue;
         }
+        for ((api, target, script), calls) in p.hooks {
+            w.send(Row::Hook {
+                site: site.clone(),
+                api,
+                target,
+                script,
+                calls: calls as i64,
+            });
+        }
         for (method, url) in p.requests {
             w.send(Row::Request {
                 site: site.clone(),
