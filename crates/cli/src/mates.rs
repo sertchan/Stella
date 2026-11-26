@@ -70,10 +70,10 @@ pub struct Mate {
 pub fn key(kind: &str, value: &str, regdom: impl Fn(&str) -> String) -> Option<String> {
     let key = match kind {
         "ns" => regdom(value),
-        "rname" | "txt" => value.to_string(),
+        "rname" | "txt" | "tag" | "cert" => value.to_string(),
         _ => return None,
     };
-    let owner = if kind == "txt" {
+    let owner = if matches!(kind, "txt" | "tag" | "cert") {
         String::new()
     } else {
         regdom(value)
@@ -100,29 +100,75 @@ pub fn mates(
                 .insert(zone.as_str());
         }
     }
-    let mut out = Vec::new();
+    let mut kept: Vec<(String, String, Vec<&str>)> = Vec::new();
     for ((kind, key), zones) in groups {
         if zones.len() < 2 || zones.len() > max_share {
             continue;
         }
-        let mut picks: Vec<&str> = zones
-            .iter()
-            .copied()
-            .filter(|z| pick_zones.contains(*z))
-            .collect();
-        if picks.is_empty() || (picks.len() as f64) < min_pick_share * zones.len() as f64 {
+        let picks = zones.iter().filter(|z| pick_zones.contains(**z)).count();
+        if picks == 0 || (picks as f64) < min_pick_share * zones.len() as f64 {
             continue;
         }
-        picks.sort_unstable();
-        for z in zones.iter().filter(|z| !pick_zones.contains(**z)) {
-            out.push(Mate {
-                zone: (*z).to_string(),
-                kind: kind.clone(),
-                key: key.clone(),
-                pick_zones: picks.len(),
-                example: picks[0].to_string(),
-            });
+        let mut zones: Vec<&str> = zones.into_iter().collect();
+        zones.sort_unstable();
+        kept.push((kind, key, zones));
+    }
+    kept.sort_unstable();
+    let mut index: FxHashMap<&str, usize> = FxHashMap::default();
+    for (_, _, zones) in &kept {
+        for z in zones {
+            let n = index.len();
+            index.entry(z).or_insert(n);
         }
+    }
+    let mut parent: Vec<usize> = (0..index.len()).collect();
+    fn root(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    for (_, _, zones) in &kept {
+        let first = index[zones[0]];
+        for z in &zones[1..] {
+            let (a, b) = (root(&mut parent, first), root(&mut parent, index[z]));
+            parent[a] = b;
+        }
+    }
+    let mut picks_in: FxHashMap<usize, Vec<&str>> = FxHashMap::default();
+    for (z, i) in &index {
+        if pick_zones.contains(*z) {
+            let r = root(&mut parent, *i);
+            picks_in.entry(r).or_default().push(z);
+        }
+    }
+    for v in picks_in.values_mut() {
+        v.sort_unstable();
+    }
+    let mut first_link: FxHashMap<&str, (&str, &str)> = FxHashMap::default();
+    for (kind, key, zones) in &kept {
+        for z in zones {
+            first_link.entry(z).or_insert((kind.as_str(), key.as_str()));
+        }
+    }
+    let mut out = Vec::new();
+    for (z, i) in &index {
+        if pick_zones.contains(*z) {
+            continue;
+        }
+        let r = root(&mut parent, *i);
+        let Some(picks) = picks_in.get(&r) else {
+            continue;
+        };
+        let (kind, key) = first_link[z];
+        out.push(Mate {
+            zone: (*z).to_string(),
+            kind: kind.to_string(),
+            key: key.to_string(),
+            pick_zones: picks.len(),
+            example: picks[0].to_string(),
+        });
     }
     out.sort_unstable_by(|a, b| {
         b.pick_zones
@@ -134,7 +180,7 @@ pub fn mates(
 }
 
 pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
-    let rows: Vec<(String, String, String)> = ctx
+    let mut rows: Vec<(String, String, String)> = ctx
         .store
         .rows("SELECT zone, kind, value FROM zonedns")?
         .into_iter()
@@ -145,6 +191,14 @@ pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
             Some((zone, kind, value))
         })
         .collect();
+    for r in ctx.store.rows("SELECT site, id FROM tag")? {
+        rows.push((ctx.regdom(&r[0]), "tag".into(), r[1].clone()));
+    }
+    for r in ctx.store.rows("SELECT host, san FROM cert")? {
+        let san = r[1].trim_start_matches("*.");
+        rows.push((ctx.regdom(&r[0]), "cert".into(), r[0].clone()));
+        rows.push((ctx.regdom(san), "cert".into(), r[0].clone()));
+    }
     let pick_zones: FxHashSet<String> = ctx
         .store
         .all("SELECT DISTINCT host FROM hit WHERE verdict = 'PICK'")?
@@ -206,6 +260,10 @@ mod tests {
             row("x.com", "rname", "awsdns-hostmaster.amazon.com"),
             row("adnet.com", "txt", "google-site-verification=abc"),
             row("lonely.com", "txt", "google-site-verification=zzz"),
+            row("adnet.com", "tag", "GTM-AAA111"),
+            row("adnet-brand.de", "tag", "GTM-AAA111"),
+            row("adnet.com", "cert", "sgtm.adnet.com"),
+            row("adnet-cdn.net", "cert", "sgtm.adnet.com"),
         ];
         let picks: FxHashSet<String> = ["adnet.com".to_string()].into_iter().collect();
         let got = mates(&rows, &picks, 25, 0.5, regdom);
@@ -213,8 +271,16 @@ mod tests {
             .iter()
             .map(|m| (m.zone.as_str(), m.kind.as_str()))
             .collect();
-        assert_eq!(pairs, [("adnet2.com", "ns"), ("trk.io", "rname")]);
-        assert_eq!(got[0].key, "adnet-dns.com");
+        assert_eq!(
+            pairs,
+            [
+                ("adnet-brand.de", "tag"),
+                ("adnet-cdn.net", "cert"),
+                ("adnet2.com", "ns"),
+                ("trk.io", "rname")
+            ]
+        );
+        assert_eq!(got[2].key, "adnet-dns.com");
         assert_eq!(got[0].example, "adnet.com");
         assert!(mates(&rows, &picks, 1, 0.5, regdom).is_empty());
         let mut hosted = rows.clone();
