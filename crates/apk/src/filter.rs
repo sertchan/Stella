@@ -9,7 +9,9 @@ static PATH: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static NOISE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(www\.)?(w3\.org|schemas\.|ns\.adobe|xml\.org|apache\.org|github|developer\.|example\.|localhost|127\.|10\.|192\.168|crl\.|ocsp\.|pki\.|cacerts?\.|www\.(google|youtube)\.com)")
+    Regex::new(
+        r"^(www\.(google|youtube)\.com|(www\.)?(w3\.org|schemas\.|ns\.adobe|xml\.org|apache\.org|github|developer\.|example\.|localhost|127\.|10\.|192\.168|crl\.|ocsp\.|pki\.|cacerts?\.))",
+    )
         .expect("NOISE regex")
 });
 
@@ -46,5 +48,15 @@ mod tests {
         assert!(endpoint("https://api.vendor.io/v1/users").is_none());
         assert!(endpoint("http://www.w3.org/2000/svg/events").is_none());
         assert!(endpoint("https://sdk.vendor.io/sdk/config").is_some());
+        for noise in [
+            "www.google.com",
+            "www.youtube.com",
+            "github.com",
+            "www.w3.org",
+        ] {
+            assert!(NOISE.is_match(noise), "{noise}");
+        }
+        assert!(!NOISE.is_match("google.com"));
+        assert!(!NOISE.is_match("log.github-vendor.io"));
     }
 }
