@@ -7,6 +7,7 @@ pub mod extension;
 pub mod labels;
 pub mod pivot;
 pub mod scripts;
+pub mod sdk;
 pub mod site;
 pub mod toplist;
 pub mod variants;
