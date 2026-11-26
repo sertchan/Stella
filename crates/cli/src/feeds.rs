@@ -4,7 +4,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::time::{Duration, Instant};
 use stella_core::store::Row;
 use stella_net::client::{self, Options};
-use stella_sources::{adtech, code, extension, httparchive, scripts, sdk, vendors};
+use stella_sources::{adtech, code, extension, httparchive, nrd, scripts, sdk, vendors};
 use tokio::task::JoinSet;
 
 const PREBID_CAP: u64 = 400 * 1024 * 1024;
@@ -906,6 +906,38 @@ pub async fn http_archive(ctx: &mut Ctx) -> Result<()> {
         all.len(),
         fresh.len(),
         fresh.iter().filter(|e| e.zone).count(),
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+const NRD_CAP: usize = 64 * 1024 * 1024;
+
+pub async fn nrd(ctx: &mut Ctx, date: Option<String>) -> Result<()> {
+    let started = Instant::now();
+    let date = date.unwrap_or_else(|| nrd::day_before(stella_core::now()));
+    if !nrd::valid_date(&date) {
+        anyhow::bail!("date must look like 2026-11-25, got {date}");
+    }
+    let c = web(120)?;
+    let p = client::fetch(&c, &nrd::url(&date), NRD_CAP).await?;
+    if p.status != 200 {
+        anyhow::bail!("newly registered domains for {date}: http {}", p.status);
+    }
+    let list = nrd::domains(&p.body).ok_or_else(|| {
+        anyhow::anyhow!("newly registered domains for {date}: no domain list in the archive")
+    })?;
+    let known = ctx.known();
+    let mut out = Out::new();
+    let mut fresh = 0usize;
+    for d in list.iter().filter(|d| !known.contains(d)) {
+        fresh += 1;
+        out.row(&[d]);
+    }
+    drop(out);
+    eprintln!(
+        "newly registered {date}: domains={} unlisted={fresh} secs={:.1}",
+        list.len(),
         started.elapsed().as_secs_f64()
     );
     Ok(())

@@ -163,6 +163,13 @@ enum Cmd {
     )]
     HttpArchive,
     #[command(
+        about = "Domains registered on one day, for records and mates to match against pick zones"
+    )]
+    Nrd {
+        #[arg(long, help = "Day as YYYY-MM-DD, yesterday by default")]
+        date: Option<String>,
+    },
+    #[command(
         about = "Hosts in pages, scripts or reports given as URLs or files on stdin, defanged names included"
     )]
     Extract,
@@ -493,6 +500,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         Cmd::Cmp { par } => crate::feeds::cmp(ctx, par).await?,
         Cmd::Scripts { par } => crate::feeds::scripts(ctx, par).await?,
         Cmd::Extract => crate::feeds::extract(ctx).await?,
+        Cmd::Nrd { date } => crate::feeds::nrd(ctx, date).await?,
         Cmd::HttpArchive => crate::feeds::http_archive(ctx).await?,
         Cmd::SdkIndex { limit } => crate::feeds::sdk_index(ctx, limit).await?,
         Cmd::GithubCode { par } => crate::feeds::github_code(ctx, par).await?,
