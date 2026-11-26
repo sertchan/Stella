@@ -288,10 +288,7 @@ pub async fn probe(
         let rd = ctx.psl.icann_regdom_or_self(&p.host);
         let allowed = ctx.allowed(&p.host);
         for mut h in rules::classify(&p, rd) {
-            if let Some(reason) = allowed {
-                h.verdict = rules::DROP;
-                h.evidence = format!("{}; allowlisted: {reason}", h.evidence);
-            }
+            apply_allow(&mut h, allowed);
             on_hit(&p, &h);
             w.send(Row::Hit {
                 host: p.host.clone(),
@@ -303,6 +300,13 @@ pub async fn probe(
     })
     .await;
     st
+}
+
+pub fn apply_allow(h: &mut Hit, reason: Option<&str>) {
+    if let Some(reason) = reason {
+        h.verdict = rules::DROP;
+        h.evidence = format!("{}; allowlisted: {reason}", h.evidence);
+    }
 }
 
 #[derive(Default)]
@@ -348,5 +352,43 @@ impl Stats {
             pct(90),
             pct(99)
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hit() -> Hit {
+        Hit {
+            product: "sgtm",
+            evidence: "healthy ok, random 400".into(),
+            verdict: rules::PICK,
+        }
+    }
+
+    #[test]
+    fn allowlist_turns_any_verdict_into_drop_with_reason() {
+        let mut h = hit();
+        apply_allow(&mut h, None);
+        assert_eq!(h, hit());
+        apply_allow(&mut h, Some("fraud vendor"));
+        assert_eq!(h.verdict, rules::DROP);
+        assert_eq!(
+            h.evidence,
+            "healthy ok, random 400; allowlisted: fraud vendor"
+        );
+    }
+
+    #[test]
+    fn joins_addresses_with_commas() {
+        assert_eq!(join_addrs(&[]), "");
+        assert_eq!(
+            join_addrs(&[
+                "192.0.2.1".parse().expect("addr"),
+                "198.51.100.7".parse().expect("addr")
+            ]),
+            "192.0.2.1,198.51.100.7"
+        );
     }
 }
