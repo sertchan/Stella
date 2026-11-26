@@ -9,6 +9,7 @@ mod crawl;
 mod ctx;
 mod feeds;
 mod fuse;
+mod geo;
 mod get;
 mod hunt;
 mod known;
@@ -87,6 +88,10 @@ enum Cmd {
         about = "Certificate names from TLS handshakes without SNI to every address of /24 blocks dense with picks"
     )]
     Sweep(sweep::Args),
+    #[command(
+        about = "Probe the addresses that EU, US and Asia client subnets get for each host when they differ from ours"
+    )]
+    Geo(geo::Args),
     #[command(about = "Address neighbours, certificate names and zones of the picks")]
     Pivot(pivot::Args),
     #[command(about = "Filter, resolve, cap, probe and pivot the names on stdin in one pass")]
@@ -144,6 +149,7 @@ fn main() -> Result<()> {
             Cmd::Mates(a) => mates::run(&ctx, a),
             Cmd::Fuse(a) => fuse::run(&ctx, a),
             Cmd::Sweep(a) => sweep::run(&mut ctx, a).await,
+            Cmd::Geo(a) => geo::run(&mut ctx, a).await,
             Cmd::Pivot(a) => pivot::run(&mut ctx, a),
             Cmd::Hunt(a) => hunt::run(&mut ctx, a).await,
             Cmd::Allow(a) => allow::run(&mut ctx, a),
