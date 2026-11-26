@@ -370,6 +370,26 @@ mod tests {
     }
 
     #[test]
+    fn decodes_escaped_urls() {
+        let x: String = "https://e.vendor.io/log"
+            .bytes()
+            .map(|c| format!("\\x{c:02x}"))
+            .collect();
+        let u: String = "http://u.vendor.io/beacon"
+            .bytes()
+            .map(|c| format!("\\u{c:04x}"))
+            .collect();
+        let blob = format!("var a=\"{x}\";var b=\"{u}\";");
+        assert_eq!(
+            found(blob.as_bytes(), true),
+            [
+                ("esc", "http://u.vendor.io/beacon".to_string()),
+                ("esc", "https://e.vendor.io/log".to_string()),
+            ]
+        );
+    }
+
+    #[test]
     fn finds_single_byte_xor_outside_dex() {
         let url = b"https://t.vendor.io/ping";
         let mut blob = vec![0u8; 16];
