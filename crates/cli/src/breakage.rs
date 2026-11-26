@@ -67,11 +67,13 @@ fn range(base: &[Snapshot], field: fn(&Snapshot) -> usize) -> String {
 fn metrics(o: &Outcome) -> String {
     let b = &o.blocked;
     format!(
-        "text {} -> {}, controls {} -> {}, errors {} -> {}, failed {} -> {}",
+        "text {} -> {}, controls {} -> {}, frames {} -> {}, errors {} -> {}, failed {} -> {}",
         range(&o.base, |s| s.text),
         b.text,
         range(&o.base, |s| s.controls),
         b.controls,
+        range(&o.base, |s| s.frames),
+        b.frames,
         range(&o.base, |s| s.errors),
         b.errors,
         range(&o.base, |s| s.failed),

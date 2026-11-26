@@ -9,10 +9,11 @@ use std::time::Duration;
 use tokio::sync::{Semaphore, mpsc};
 use tokio::time::Instant;
 
-const MEASURE_JS: &str = r#"JSON.stringify({t: document.title || "", x: ((document.body && document.body.innerText) || "").length, c: document.querySelectorAll("a[href],button,input,select,textarea").length})"#;
+const MEASURE_JS: &str = r#"JSON.stringify({t: document.title || "", x: ((document.body && document.body.innerText) || "").length, c: document.querySelectorAll("a[href],button,input,select,textarea").length, f: Array.from(document.querySelectorAll("iframe")).filter(e => e.offsetWidth * e.offsetHeight > 0).length})"#;
 const BASE_RUNS: usize = 2;
 const MIN_TEXT: usize = 200;
 const MIN_CONTROLS: usize = 10;
+const MIN_FRAMES: usize = 1;
 const EXTRA_ERRORS: usize = 2;
 const EXTRA_FAILED: usize = 2;
 
@@ -21,6 +22,7 @@ pub struct Snapshot {
     pub title: String,
     pub text: usize,
     pub controls: usize,
+    pub frames: usize,
     pub errors: usize,
     pub failed: usize,
     pub requests: usize,
@@ -189,6 +191,7 @@ pub async fn snapshot(b: &Browser, url: &str, opts: &Options, blocked: Option<&s
         s.title = v["t"].as_str().unwrap_or_default().trim().to_string();
         s.text = v["x"].as_u64().unwrap_or(0) as usize;
         s.controls = v["c"].as_u64().unwrap_or(0) as usize;
+        s.frames = v["f"].as_u64().unwrap_or(0) as usize;
         drop(rx);
         b.forget(&session);
         Ok::<Snapshot, anyhow::Error>(s)
@@ -254,6 +257,15 @@ pub fn judge(base: &[Snapshot], blocked: &Snapshot) -> Judgement {
             j.reasons
                 .push(format!("title {title:?} -> {:?}", blocked.title));
         }
+    }
+    if blocked.error.is_none() {
+        j.notes.extend(dropped(
+            "visible frames",
+            &ok,
+            blocked.frames,
+            |s| s.frames,
+            MIN_FRAMES,
+        ));
     }
     let errors = ok.iter().map(|s| s.errors).max().unwrap_or(0);
     if blocked.errors > errors + EXTRA_ERRORS {
@@ -381,6 +393,14 @@ mod tests {
         };
         assert!(judge(&base, &failed).breaks);
         assert!(!judge(std::slice::from_ref(&failed), &snap(10, 1, "", 0)).known);
+        let framed = |f: usize| Snapshot {
+            frames: f,
+            ..snap(5000, 120, "Shop", 1)
+        };
+        let j = judge(&[framed(2), framed(2)], &framed(0));
+        assert!(!j.breaks);
+        assert_eq!(j.notes, ["visible frames 2 -> 0"]);
+        assert!(judge(&[framed(2), framed(2)], &framed(2)).notes.is_empty());
         assert_eq!(
             block_rule("t.shop.com"),
             "--host-resolver-rules=MAP t.shop.com ~NOTFOUND, MAP *.t.shop.com ~NOTFOUND"
