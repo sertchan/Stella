@@ -4,7 +4,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::time::{Duration, Instant};
 use stella_core::store::Row;
 use stella_net::client::{self, Options};
-use stella_sources::{adtech, extension, scripts, vendors};
+use stella_sources::{adtech, extension, scripts, sdk, vendors};
 use tokio::task::JoinSet;
 
 const PREBID_CAP: u64 = 400 * 1024 * 1024;
@@ -481,6 +481,10 @@ pub async fn passive_zones(ctx: &mut Ctx, input: Vec<String>, par: usize) -> Res
     Ok(())
 }
 
+fn real_host(ctx: &Ctx, h: &str) -> bool {
+    ctx.psl.listed_tld(h) && ctx.psl.regdom(h).is_some()
+}
+
 const EXTENSION_CAP: usize = 64 * 1024 * 1024;
 
 async fn extension_file(c: &reqwest::Client, store: &extension::Store) -> Option<Vec<u8>> {
@@ -546,7 +550,7 @@ pub async fn extensions(ctx: &mut Ctx, par: usize) -> Result<()> {
     let known = ctx.known();
     let mut rows: Vec<(String, FxHashSet<String>)> = by_host
         .into_iter()
-        .filter(|(h, _)| !known.contains(h))
+        .filter(|(h, _)| !known.contains(h) && real_host(ctx, h))
         .collect();
     rows.sort_unstable_by(|a, b| b.1.len().cmp(&a.1.len()).then_with(|| a.0.cmp(&b.0)));
     let mut out = Out::new();
@@ -566,6 +570,113 @@ pub async fn extensions(ctx: &mut Ctx, par: usize) -> Result<()> {
     w.finish()?;
     eprintln!(
         "extensions={total} fetched={fetched} hosts-unlisted={} secs={:.1}",
+        rows.len(),
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+const SDK_INDEX_CAP: usize = 16 * 1024 * 1024;
+
+async fn sdk_hosts(
+    c: &reqwest::Client,
+    pkg: &sdk::Package,
+    dir: std::path::PathBuf,
+) -> Option<Vec<String>> {
+    let urls = match pkg {
+        sdk::Package::Github { .. } => vec![pkg.index_url()],
+        _ => {
+            let index = client::fetch(c, &pkg.index_url(), SDK_INDEX_CAP)
+                .await
+                .ok()?;
+            if index.status != 200 {
+                return None;
+            }
+            pkg.archive_urls(&index.body)
+        }
+    };
+    for url in urls {
+        let Ok(p) = client::fetch(c, &url, sdk::ARCHIVE_CAP).await else {
+            continue;
+        };
+        if p.status != 200 || p.body.is_empty() {
+            continue;
+        }
+        if std::fs::create_dir_all(&dir).is_ok() {
+            let _ = std::fs::write(dir.join("archive"), &p.body);
+        }
+        return tokio::task::spawn_blocking(move || sdk::hosts_in_archive(&p.body))
+            .await
+            .ok()
+            .flatten();
+    }
+    None
+}
+
+pub async fn sdks(ctx: &mut Ctx, par: usize) -> Result<()> {
+    let started = Instant::now();
+    let done = ctx.store.done("sdk")?;
+    let keys: Vec<String> = stdin_rows()
+        .into_iter()
+        .filter_map(|r| r.first().and_then(|l| sdk::Package::parse(l)))
+        .map(|p| p.key())
+        .filter(|k| !done.contains(k))
+        .collect();
+    let total = keys.len();
+    let root = ctx.paths.cache().join("sdk");
+    let c = web(300)?;
+    let w = ctx.store.writer()?;
+    let mut by_host: FxHashMap<String, FxHashSet<String>> = FxHashMap::default();
+    let mut scanned = 0usize;
+    let cc = c.clone();
+    each(
+        keys,
+        par,
+        move |k| {
+            let c = cc.clone();
+            let dir = root.join(k.replace([':', '/', '@'], "-"));
+            async move {
+                let pkg = sdk::Package::parse(&k)?;
+                sdk_hosts(&c, &pkg, dir).await
+            }
+        },
+        |key, got| {
+            if let Some(hosts) = got {
+                scanned += 1;
+                for h in hosts {
+                    by_host.entry(h).or_default().insert(key.clone());
+                }
+            }
+            w.send(Row::Done {
+                kind: "sdk".into(),
+                key,
+            });
+        },
+    )
+    .await;
+    let known = ctx.known();
+    let mut rows: Vec<(String, FxHashSet<String>)> = by_host
+        .into_iter()
+        .filter(|(h, _)| !known.contains(h) && real_host(ctx, h))
+        .collect();
+    rows.sort_unstable_by(|a, b| b.1.len().cmp(&a.1.len()).then_with(|| a.0.cmp(&b.0)));
+    let mut out = Out::new();
+    for (h, pkgs) in &rows {
+        let mut list: Vec<&String> = pkgs.iter().collect();
+        list.sort_unstable();
+        out.row(&[h, &pkgs.len().to_string(), list[0]]);
+        for p in list {
+            w.send(Row::Origin {
+                host: h.clone(),
+                source: "sdk".into(),
+                detail: p.clone(),
+            });
+        }
+    }
+    drop(out);
+    w.finish()?;
+    eprintln!(
+        "packages={total} scanned={scanned} hosts-unlisted={} secs={:.1}",
         rows.len(),
         started.elapsed().as_secs_f64()
     );

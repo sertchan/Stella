@@ -129,6 +129,13 @@ enum Cmd {
         par: usize,
     },
     #[command(
+        about = "Hosts in ad and analytics SDK packages named on stdin as npm:NAME, maven:GROUP:ARTIFACT, pypi:NAME, nuget:ID or github:OWNER/REPO"
+    )]
+    Sdk {
+        #[arg(long, default_value_t = 4, help = "Packages fetched in parallel")]
+        par: usize,
+    },
+    #[command(
         about = "Hosts in pages, scripts or reports given as URLs or files on stdin, defanged names included"
     )]
     Extract,
@@ -455,6 +462,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         Cmd::Cmp { par } => crate::feeds::cmp(ctx, par).await?,
         Cmd::Scripts { par } => crate::feeds::scripts(ctx, par).await?,
         Cmd::Extract => crate::feeds::extract(ctx).await?,
+        Cmd::Sdk { par } => crate::feeds::sdks(ctx, par).await?,
         Cmd::Extension { par } => crate::feeds::extensions(ctx, par).await?,
         Cmd::Passive { par } => crate::feeds::passive(ctx, par).await?,
         Cmd::CnameVendors {
