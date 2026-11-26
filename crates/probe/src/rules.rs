@@ -56,6 +56,10 @@ fn script(r: Option<&Resp>, needle: &str) -> bool {
     !html(r) && has(r, needle)
 }
 
+fn script_with(r: Option<&Resp>, needle: &str, second: &[&str]) -> bool {
+    script(r, needle) && second.iter().any(|m| has(r, m))
+}
+
 pub fn title(r: Option<&Resp>) -> Option<String> {
     let r = r?;
     let b = lower(r);
@@ -78,6 +82,10 @@ const OWN_UI: &[(&str, &[&str])] = &[
     ("jitsu", &["jitsu"]),
     ("rudderstack", &["rudder"]),
 ];
+const UMAMI_SECOND: &[&str] = &["website-id"];
+const PLAUSIBLE_SECOND: &[&str] = &["data-domain", "/api/event"];
+const FATHOM_SECOND: &[&str] = &["data-site", "trackpageview"];
+const POSTHOG_SECOND: &[&str] = &["$pageview"];
 const MIRROR_HEAD: usize = 256;
 const POSTHOG_MIN_BYTES: usize = 20_000;
 const COLLECTOR_MAX_BYTES: usize = 512;
@@ -243,19 +251,18 @@ fn products(p: &HostProbe) -> Vec<(&'static str, String)> {
     ) {
         out.push(("matomo", "/matomo.js".into()));
     }
-    if script(fixed(p, "/js/script.js"), "plausible") {
+    if script_with(fixed(p, "/js/script.js"), "plausible", PLAUSIBLE_SECOND) {
         out.push(("plausible", "/js/script.js".into()));
     }
-    if script(fixed(p, "/script.js"), "umami") {
+    if script_with(fixed(p, "/script.js"), "umami", UMAMI_SECOND) {
         out.push(("umami", "/script.js".into()));
     }
-    if script(fixed(p, "/script.js"), "fathom") {
+    if script_with(fixed(p, "/script.js"), "fathom", FATHOM_SECOND) {
         out.push(("fathom", "/script.js".into()));
     }
     let array = fixed(p, "/static/array.js");
     if array.is_some_and(|a| a.body.len() > POSTHOG_MIN_BYTES)
-        && script(array, "posthog")
-        && !has(array, "grafana")
+        && script_with(array, "posthog", POSTHOG_SECOND)
     {
         out.push(("posthog", "/static/array.js".into()));
     }
@@ -649,7 +656,7 @@ mod tests {
             )],
         );
         assert!(products_of(&shell, "px").is_empty());
-        let grafana = probe(
+        let mention = probe(
             "stats.example.org",
             &[(
                 "/static/array.js",
@@ -661,7 +668,7 @@ mod tests {
                 ),
             )],
         );
-        assert!(products_of(&grafana, "stats").is_empty());
+        assert!(products_of(&mention, "stats").is_empty());
     }
 
     #[test]
@@ -697,7 +704,10 @@ mod tests {
                         200,
                         "application/javascript",
                         "",
-                        &format!("!function(t,e){{posthog}}{}", "x".repeat(30_000)),
+                        &format!(
+                            "!function(t,e){{posthog.capture(\"$pageview\")}}{}",
+                            "x".repeat(30_000)
+                        ),
                     ),
                 ),
                 (RANDOM, resp(404, "text/plain", "", "Not Found")),
@@ -788,6 +798,44 @@ mod tests {
             &[("/", sso), ("/matomo.js", matomo_js)],
         );
         assert_eq!(products_of(&dashboard, "analytics"), [("matomo", PICK)]);
+    }
+
+    #[test]
+    fn script_rules_need_a_second_product_marker() {
+        let js = |path: &'static str, body: &str| {
+            probe(
+                "t.shop.com",
+                &[
+                    (path, resp(200, "application/javascript", "", body)),
+                    (RANDOM, resp(404, "text/plain", "", "Not Found")),
+                ],
+            )
+        };
+        let umami = "const{currentScript:u,referrer:m}=c,p=e.umamiConfig||{};$=k(\"website-id\"),x=k(\"host-url\")";
+        let plausible = "a.domain=o.getAttribute(\"data-domain\");window.plausible=g";
+        let fathom = "window.fathom=(()=>{var s=document.querySelector(\"script[data-site]\")";
+        assert_eq!(
+            products_of(&js("/script.js", umami), "t"),
+            [("umami", PICK)]
+        );
+        assert_eq!(
+            products_of(&js("/js/script.js", plausible), "t"),
+            [("plausible", PICK)]
+        );
+        assert_eq!(
+            products_of(&js("/script.js", fathom), "t"),
+            [("fathom", PICK)]
+        );
+        for (path, bundle) in [
+            ("/script.js", "import umami from \"./stats\";render()"),
+            (
+                "/js/script.js",
+                "var label = \"plausible analytics setup\";",
+            ),
+            ("/script.js", "const fathom = depth * 6;"),
+        ] {
+            assert!(products_of(&js(path, bundle), "t").is_empty(), "{bundle}");
+        }
     }
 
     #[test]
