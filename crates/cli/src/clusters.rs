@@ -40,6 +40,7 @@ pub struct ProbeRow {
 pub enum Label {
     Candidate,
     New,
+    Weak,
     Plain,
 }
 
@@ -48,6 +49,7 @@ impl Label {
         match self {
             Label::Candidate => "CANDIDATE",
             Label::New => "NEW",
+            Label::Weak => "WEAK",
             Label::Plain => "-",
         }
     }
@@ -84,6 +86,7 @@ pub struct Cluster {
     pub id: String,
     pub shape: String,
     pub flat: bool,
+    pub bodyless: bool,
     pub members: Vec<Member>,
 }
 
@@ -103,12 +106,17 @@ impl Cluster {
         }
         let covered = self.members.iter().filter(|m| m.covered()).count();
         let open = self.members.iter().filter(|m| m.open()).count();
-        if covered == 0 && open > 0 {
+        let label = if covered == 0 && open > 0 {
             Label::New
         } else if open > 0 && covered * 2 >= self.members.len() {
             Label::Candidate
         } else {
             Label::Plain
+        };
+        if self.bodyless && label != Label::Plain {
+            Label::Weak
+        } else {
+            label
         }
     }
 
@@ -187,11 +195,16 @@ pub fn cluster(rows: &[ProbeRow], member: impl Fn(&str) -> Member) -> Vec<Cluste
         .into_iter()
         .map(|(slots, mut hosts)| {
             hosts.sort_unstable();
-            let distinct: FxHashSet<&String> = slots.iter().filter(|t| *t != "-").collect();
+            let answered = || slots.iter().filter(|t| *t != "-");
+            let kinds: FxHashSet<&str> = answered()
+                .map(|t| t.rsplit_once(':').map_or(t.as_str(), |(kind, _)| kind))
+                .collect();
+            let bodyless = answered().all(|t| t.ends_with(':'));
             Cluster {
                 id: format!("{:08x}", shape::fnv1a(slots.join("|").as_bytes()) as u32),
                 shape: describe(&slots),
-                flat: distinct.len() <= 1,
+                flat: kinds.len() <= 1,
+                bodyless,
                 members: hosts.into_iter().map(&member).collect(),
             }
         })
@@ -378,6 +391,45 @@ mod tests {
         let clusters = cluster(&rows, member(&[]));
         assert_eq!(clusters[0].label(3), Label::New);
         assert_eq!(clusters[0].label(4), Label::Plain);
+    }
+
+    #[test]
+    fn page_that_echoes_the_path_is_flat() {
+        let rows: Vec<ProbeRow> = ["a.x.com", "b.y.com", "c.z.com"]
+            .iter()
+            .flat_map(|h| {
+                LITE.iter().map(move |p| {
+                    row(
+                        h,
+                        p,
+                        403,
+                        "text/html",
+                        &format!("<title>Just a moment</title> path={p}"),
+                    )
+                })
+            })
+            .collect();
+        let clusters = cluster(&rows, member(&[]));
+        assert_eq!(clusters.len(), 1);
+        assert!(clusters[0].flat);
+    }
+
+    #[test]
+    fn cluster_without_any_body_is_weak() {
+        let rows: Vec<ProbeRow> = ["g.a.com", "g.b.com", "g.c.com", "g.d.com"]
+            .iter()
+            .flat_map(|h| {
+                vec![
+                    row(h, "/", 400, "", ""),
+                    row(h, "/healthy", 503, "text/plain", ""),
+                    row(h, "/i", 400, "", ""),
+                    row(h, "?random", 400, "", ""),
+                ]
+            })
+            .collect();
+        let clusters = cluster(&rows, member(&["g.a.com", "g.b.com", "g.c.com"]));
+        assert!(clusters[0].bodyless);
+        assert_eq!(clusters[0].label(3), Label::Weak);
     }
 
     #[test]
