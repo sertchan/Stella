@@ -5,6 +5,7 @@ pub mod code;
 pub mod container;
 pub mod ct;
 pub mod extension;
+pub mod httparchive;
 pub mod labels;
 pub mod pivot;
 pub mod scripts;
