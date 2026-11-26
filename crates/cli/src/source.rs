@@ -29,6 +29,11 @@ enum Cmd {
             help = "Treat each input as a subzone of a zone too big for one query"
         )]
         subzone: bool,
+        #[arg(
+            long,
+            help = "Also query zones done before and ask only for certificates newer than the last one seen"
+        )]
+        incremental: bool,
     },
     #[command(
         about = "Tag ids, server container hints and security header hosts from each site's homepage"
@@ -143,6 +148,10 @@ enum Cmd {
         par: usize,
     },
     #[command(
+        about = "Maven coordinates of the SDKs in the Google Play SDK Index, as input for the sdk source"
+    )]
+    SdkIndex,
+    #[command(
         about = "Hosts in pages, scripts or reports given as URLs or files on stdin, defanged names included"
     )]
     Extract,
@@ -205,7 +214,11 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             }
             eprintln!("{list}: {} names", names.len());
         }
-        Cmd::Ct { par, subzone } => ct_zones(ctx, stdin_names(), par, subzone).await?,
+        Cmd::Ct {
+            par,
+            subzone,
+            incremental,
+        } => ct_zones(ctx, stdin_names(), par, subzone, incremental).await?,
         Cmd::Site { par } => {
             let done = ctx.store.done("site")?;
             let sites: Vec<String> = stdin_names()
@@ -469,6 +482,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         Cmd::Cmp { par } => crate::feeds::cmp(ctx, par).await?,
         Cmd::Scripts { par } => crate::feeds::scripts(ctx, par).await?,
         Cmd::Extract => crate::feeds::extract(ctx).await?,
+        Cmd::SdkIndex => crate::feeds::sdk_index(ctx).await?,
         Cmd::GithubCode { par } => crate::feeds::github_code(ctx, par).await?,
         Cmd::Sdk { par } => crate::feeds::sdks(ctx, par).await?,
         Cmd::Extension { par } => crate::feeds::extensions(ctx, par).await?,
@@ -498,10 +512,33 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     Ok(())
 }
 
-pub async fn ct_zones(ctx: &mut Ctx, input: Vec<String>, par: usize, subzone: bool) -> Result<()> {
+pub async fn ct_zones(
+    ctx: &mut Ctx,
+    input: Vec<String>,
+    par: usize,
+    subzone: bool,
+    incremental: bool,
+) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("ct")?;
-    let zones: Vec<String> = input.into_iter().filter(|z| !done.contains(z)).collect();
+    let marks: rustc_hash::FxHashMap<String, i64> = ctx
+        .store
+        .rows("SELECT zone, last FROM ctmark")?
+        .into_iter()
+        .filter_map(|r| Some((r[0].clone(), r[1].parse().ok()?)))
+        .collect();
+    let zones: Vec<(String, i64)> = input
+        .into_iter()
+        .filter(|z| incremental || !done.contains(z))
+        .map(|z| {
+            let since = if incremental {
+                marks.get(&z).copied().unwrap_or(0)
+            } else {
+                0
+            };
+            (z, since)
+        })
+        .collect();
     let total = zones.len();
     let (tx, mut rx) = tokio::sync::mpsc::channel(256);
     let runner = tokio::spawn(ct::run(zones, par, subzone, tx));
@@ -516,9 +553,15 @@ pub async fn ct_zones(ctx: &mut Ctx, input: Vec<String>, par: usize, subzone: bo
             Some(names),
         );
         match result {
-            Ok(list) => {
+            Ok((list, last)) => {
                 ok += 1;
                 names += list.len();
+                if last > 0 {
+                    w.send(Row::CtMark {
+                        zone: zone.clone(),
+                        last,
+                    });
+                }
                 for n in list {
                     out.row(&[&n, "ct", &zone]);
                     w.send(Row::Origin {

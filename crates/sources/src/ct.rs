@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio_postgres::types::Type;
 use tokio_postgres::{Client, Config, NoTls};
 
 const CRTSH: &str = "crt.sh";
@@ -42,7 +43,7 @@ fn like_escape(s: &str) -> String {
         .replace('_', "\\_")
 }
 
-const NAMES_SQL: &str = "SELECT DISTINCT lower(ci.name_value) FROM certificate_and_identities ci WHERE plainto_tsquery('certwatch', $1) @@ identities(ci.certificate) AND lower(ci.name_value) LIKE $2";
+const NAMES_SQL: &str = "SELECT lower(ci.name_value), max(ci.certificate_id) FROM certificate_and_identities ci WHERE plainto_tsquery('certwatch', $1) @@ identities(ci.certificate) AND lower(ci.name_value) LIKE $2 AND ci.certificate_id > $3 GROUP BY 1";
 
 fn pattern(zone: &str, subzone: bool) -> String {
     let escaped = like_escape(zone);
@@ -53,11 +54,38 @@ fn pattern(zone: &str, subzone: bool) -> String {
     }
 }
 
-async fn names(client: &Client, zone: &str, subzone: bool) -> Result<Vec<String>> {
+async fn names(
+    client: &Client,
+    zone: &str,
+    subzone: bool,
+    since: i64,
+) -> Result<(Vec<String>, i64)> {
     let like = pattern(zone, subzone);
-    let rows = tokio::time::timeout(STATEMENT_CAP, client.query(NAMES_SQL, &[&zone, &like]))
-        .await
-        .map_err(|_| anyhow!("timeout"))??;
+    let rows = tokio::time::timeout(
+        STATEMENT_CAP,
+        client.query_typed(
+            NAMES_SQL,
+            &[
+                (&zone, Type::TEXT),
+                (&like, Type::TEXT),
+                (&since, Type::INT8),
+            ],
+        ),
+    )
+    .await
+    .map_err(|_| anyhow!("timeout"))?
+    .map_err(|e| {
+        anyhow!(
+            "{}",
+            e.as_db_error()
+                .map_or(e.to_string(), |d| d.message().to_string())
+        )
+    })?;
+    let last = rows
+        .iter()
+        .filter_map(|r| r.get::<_, Option<i64>>(1))
+        .max()
+        .unwrap_or(since);
     let mut out: Vec<String> = rows
         .iter()
         .filter_map(|r| r.get::<_, Option<String>>(0))
@@ -66,16 +94,16 @@ async fn names(client: &Client, zone: &str, subzone: bool) -> Result<Vec<String>
         .collect();
     out.sort_unstable();
     out.dedup();
-    Ok(out)
+    Ok((out, last))
 }
 
-pub type Outcome = (String, Result<Vec<String>>);
+pub type Outcome = (String, Result<(Vec<String>, i64)>);
 
-fn take(queue: &Mutex<VecDeque<String>>) -> Option<String> {
+fn take(queue: &Mutex<VecDeque<(String, i64)>>) -> Option<(String, i64)> {
     queue.lock().ok()?.pop_front()
 }
 
-pub async fn run(zones: Vec<String>, par: usize, subzone: bool, tx: mpsc::Sender<Outcome>) {
+pub async fn run(zones: Vec<(String, i64)>, par: usize, subzone: bool, tx: mpsc::Sender<Outcome>) {
     let queue = Arc::new(Mutex::new(VecDeque::from(zones)));
     let mut workers = Vec::new();
     for w in 0..par.max(1) {
@@ -84,7 +112,7 @@ pub async fn run(zones: Vec<String>, par: usize, subzone: bool, tx: mpsc::Sender
         workers.push(tokio::spawn(async move {
             let mut rng = stella_core::rng::Rng::seeded();
             let mut client: Option<Client> = None;
-            while let Some(zone) = take(&queue) {
+            while let Some((zone, since)) = take(&queue) {
                 let mut result = Err(anyhow!("not tried"));
                 for attempt in 0..ZONE_TRIES {
                     if client.as_ref().is_none_or(Client::is_closed) {
@@ -94,7 +122,7 @@ pub async fn run(zones: Vec<String>, par: usize, subzone: bool, tx: mpsc::Sender
                         }
                     }
                     if let Some(c) = &client {
-                        result = names(c, &zone, subzone).await;
+                        result = names(c, &zone, subzone, since).await;
                         if result.is_ok() {
                             break;
                         }

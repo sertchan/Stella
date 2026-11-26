@@ -157,7 +157,7 @@ async fn expand(ctx: &mut Ctx, args: &Args, since: i64) -> Result<()> {
     passive.truncate(args.passive_zones);
     let ct: Vec<String> = zones.iter().take(args.ct_zones).cloned().collect();
     feeds::passive_zones(ctx, passive, 4).await?;
-    source::ct_zones(ctx, ct, 4, false).await
+    source::ct_zones(ctx, ct, 4, false, true).await
 }
 
 async fn hunt_pending(ctx: &mut Ctx, args: &Args) -> Result<usize> {
