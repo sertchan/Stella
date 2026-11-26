@@ -10,6 +10,12 @@ pub struct Args {
         help = "Skip a name server, SOA mailbox or TXT token shared by more zones than this"
     )]
     max_share: usize,
+    #[arg(
+        long,
+        default_value_t = 0.5,
+        help = "Share of the zones behind one value that must be pick zones"
+    )]
+    min_pick_share: f64,
 }
 
 const SHARED_DNS: &[&str] = &[
@@ -82,6 +88,7 @@ pub fn mates(
     rows: &[(String, String, String)],
     pick_zones: &FxHashSet<String>,
     max_share: usize,
+    min_pick_share: f64,
     regdom: impl Fn(&str) -> String,
 ) -> Vec<Mate> {
     let mut groups: FxHashMap<(String, String), FxHashSet<&str>> = FxHashMap::default();
@@ -103,7 +110,7 @@ pub fn mates(
             .copied()
             .filter(|z| pick_zones.contains(*z))
             .collect();
-        if picks.is_empty() {
+        if picks.is_empty() || (picks.len() as f64) < min_pick_share * zones.len() as f64 {
             continue;
         }
         picks.sort_unstable();
@@ -144,7 +151,13 @@ pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
         .iter()
         .map(|h| ctx.regdom(h))
         .collect();
-    let found = mates(&rows, &pick_zones, args.max_share, |h| ctx.regdom(h));
+    let found = mates(
+        &rows,
+        &pick_zones,
+        args.max_share,
+        args.min_pick_share,
+        |h| ctx.regdom(h),
+    );
     let mut out = Out::new();
     for m in &found {
         out.row(&[
@@ -195,7 +208,7 @@ mod tests {
             row("lonely.com", "txt", "google-site-verification=zzz"),
         ];
         let picks: FxHashSet<String> = ["adnet.com".to_string()].into_iter().collect();
-        let got = mates(&rows, &picks, 25, regdom);
+        let got = mates(&rows, &picks, 25, 0.5, regdom);
         let pairs: Vec<(&str, &str)> = got
             .iter()
             .map(|m| (m.zone.as_str(), m.kind.as_str()))
@@ -203,6 +216,15 @@ mod tests {
         assert_eq!(pairs, [("adnet2.com", "ns"), ("trk.io", "rname")]);
         assert_eq!(got[0].key, "adnet-dns.com");
         assert_eq!(got[0].example, "adnet.com");
-        assert!(mates(&rows, &picks, 1, regdom).is_empty());
+        assert!(mates(&rows, &picks, 1, 0.5, regdom).is_empty());
+        let mut hosted = rows.clone();
+        for i in 0..5 {
+            hosted.push(row(&format!("client{i}.com"), "ns", "ns1.adnet-dns.com"));
+        }
+        assert!(
+            mates(&hosted, &picks, 25, 0.5, regdom)
+                .iter()
+                .all(|m| m.kind != "ns")
+        );
     }
 }
