@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio_postgres::{Client, Config, NoTls, SimpleQueryMessage};
+use tokio_postgres::{Client, Config, NoTls};
 
 const CRTSH: &str = "crt.sh";
 const STATEMENT_CAP: Duration = Duration::from_secs(100);
@@ -36,40 +36,32 @@ async fn connect() -> Result<Client> {
     Ok(client)
 }
 
-fn literal(s: &str) -> String {
-    s.replace('\'', "''")
-}
-
 fn like_escape(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('%', "\\%")
         .replace('_', "\\_")
 }
 
-fn query(zone: &str, subzone: bool) -> String {
-    let escaped = literal(&like_escape(zone));
-    let like = if subzone {
+const NAMES_SQL: &str = "SELECT DISTINCT lower(ci.name_value) FROM certificate_and_identities ci WHERE plainto_tsquery('certwatch', $1) @@ identities(ci.certificate) AND lower(ci.name_value) LIKE $2";
+
+fn pattern(zone: &str, subzone: bool) -> String {
+    let escaped = like_escape(zone);
+    if subzone {
         format!("%{escaped}")
     } else {
         format!("%.{escaped}")
-    };
-    let zone = literal(zone);
-    format!(
-        "SELECT DISTINCT lower(ci.name_value) FROM certificate_and_identities ci WHERE plainto_tsquery('certwatch', '{zone}') @@ identities(ci.certificate) AND lower(ci.name_value) LIKE '{like}'"
-    )
+    }
 }
 
 async fn names(client: &Client, zone: &str, subzone: bool) -> Result<Vec<String>> {
-    let rows = tokio::time::timeout(STATEMENT_CAP, client.simple_query(&query(zone, subzone)))
+    let like = pattern(zone, subzone);
+    let rows = tokio::time::timeout(STATEMENT_CAP, client.query(NAMES_SQL, &[&zone, &like]))
         .await
         .map_err(|_| anyhow!("timeout"))??;
     let mut out: Vec<String> = rows
         .iter()
-        .filter_map(|m| match m {
-            SimpleQueryMessage::Row(r) => r.get(0),
-            _ => None,
-        })
-        .filter_map(stella_core::name::normalize)
+        .filter_map(|r| r.get::<_, Option<String>>(0))
+        .filter_map(|n| stella_core::name::normalize(&n))
         .filter(|n| n.ends_with(zone))
         .collect();
     out.sort_unstable();
@@ -130,10 +122,10 @@ pub async fn run(zones: Vec<String>, par: usize, subzone: bool, tx: mpsc::Sender
 #[cfg(test)]
 mod tests {
     #[test]
-    fn builds_queries() {
-        assert!(super::query("example.com", false).ends_with("LIKE '%.example.com'"));
-        assert!(super::query("sub.example.com", true).ends_with("LIKE '%sub.example.com'"));
-        assert!(super::query("my_zone.com", false).ends_with("LIKE '%.my\\_zone.com'"));
-        assert!(super::query("a'b.com", false).contains("'a''b.com'"));
+    fn builds_like_patterns() {
+        assert_eq!(super::pattern("example.com", false), "%.example.com");
+        assert_eq!(super::pattern("sub.example.com", true), "%sub.example.com");
+        assert_eq!(super::pattern("my_zone.com", false), "%.my\\_zone.com");
+        assert_eq!(super::pattern("a%b.com", false), "%.a\\%b.com");
     }
 }
