@@ -13,6 +13,7 @@ use stella_sources::toplist;
 
 const SEED_CAP: usize = 64 * 1024 * 1024;
 pub const PRODUCT: &str = "cname-vendor";
+pub const MAIL: &str = "adguard-mail";
 
 pub struct Learn {
     pub sample: usize,
@@ -59,6 +60,38 @@ async fn seeds(ctx: &Ctx) -> Result<Vec<Vendor>> {
     }
     out.retain(|v| !known.contains(&v.suffix) && !cname::generic(&v.suffix));
     Ok(out)
+}
+
+async fn mail_targets() -> Result<Vec<String>> {
+    let c = client::build(&Options {
+        timeout: Duration::from_secs(120),
+        ..Options::default()
+    })?;
+    match client::fetch(&c, cname::ADGUARD_MAIL, SEED_CAP).await {
+        Ok(p) if p.status == 200 => Ok(cname::disguised_targets(&p.body, cname::ADGUARD_MAIL_MIN)
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect()),
+        Ok(p) => {
+            eprintln!("cname mail targets: http {}", p.status);
+            Ok(Vec::new())
+        }
+        Err(e) => {
+            eprintln!("cname mail targets: {e}");
+            Ok(Vec::new())
+        }
+    }
+}
+
+pub fn mark_mail(all: &mut FxHashMap<String, Vendor>, mail: &[String]) -> usize {
+    let mut n = 0;
+    for v in all.values_mut() {
+        if mail.iter().any(|m| cname::overlaps(&v.suffix, m)) {
+            v.source = MAIL;
+            n += 1;
+        }
+    }
+    n
 }
 
 async fn risky() -> Result<Vec<String>> {
@@ -135,6 +168,8 @@ pub async fn learn(ctx: &mut Ctx, dns: &Config, args: &Learn) -> Result<usize> {
         "cname vendors: {} dropped as click-through or landing page hosts",
         before - all.len()
     );
+    let marked = mark_mail(&mut all, &mail_targets().await?);
+    eprintln!("cname vendors: {marked} marked as e-mail tracking targets");
     let tx = ctx.store.conn.unchecked_transaction()?;
     tx.execute("DELETE FROM vendor", [])?;
     {
@@ -174,6 +209,7 @@ fn vendors(ctx: &Ctx) -> Result<FxHashMap<String, Vendor>> {
             let source = match r[3].as_str() {
                 "adguard-trackers" => "adguard-trackers",
                 "adguard-ads" => "adguard-ads",
+                MAIL => MAIL,
                 _ => "learned",
             };
             Some((
@@ -194,6 +230,10 @@ fn why(link: &str, v: &Vendor) -> String {
         "learned" => format!(
             "CNAME to {link}, under {} where {} included zones point",
             v.suffix, v.listed
+        ),
+        MAIL => format!(
+            "CNAME to {link}, under {} from {MAIL}; e-mail tracking target",
+            v.suffix
         ),
         s => format!("CNAME to {link}, under {} from {s}", v.suffix),
     }
@@ -257,4 +297,32 @@ pub fn learned_age(ctx: &Ctx) -> Option<i64> {
         .parse()
         .ok()?;
     Some(stella_core::now() - at)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn marks_vendors_under_mail_targets() {
+        let v = |s: &str| Vendor {
+            suffix: s.into(),
+            listed: 4,
+            background: 0,
+            source: "learned",
+        };
+        let mut all: FxHashMap<String, Vendor> = ["sfmc-content.com", "sgtm.vendor.io"]
+            .iter()
+            .map(|s| (s.to_string(), v(s)))
+            .collect();
+        assert_eq!(
+            mark_mail(&mut all, &["image.sfmc-content.com".to_string()]),
+            1
+        );
+        assert_eq!(all["sfmc-content.com"].source, MAIL);
+        assert_eq!(all["sgtm.vendor.io"].source, "learned");
+        assert!(
+            why("x.sfmc-content.com", &all["sfmc-content.com"]).ends_with("e-mail tracking target")
+        );
+    }
 }

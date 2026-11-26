@@ -8,6 +8,8 @@ use stella_core::psl::Psl;
 pub const ADGUARD_TRACKERS: &str = "https://raw.githubusercontent.com/AdguardTeam/cname-trackers/master/data/combined_original_trackers_justdomains.txt";
 pub const ADGUARD_ADS: &str = "https://raw.githubusercontent.com/AdguardTeam/cname-trackers/master/data/combined_disguised_ads.json";
 pub const ADGUARD_ADS_MIN: usize = 5;
+pub const ADGUARD_MAIL: &str = "https://raw.githubusercontent.com/AdguardTeam/cname-trackers/master/data/combined_disguised_mail_trackers.json";
+pub const ADGUARD_MAIL_MIN: usize = 3;
 pub const ADGUARD_RISKY: &[&str] = &[
     "https://raw.githubusercontent.com/AdguardTeam/cname-trackers/master/data/combined_disguised_clickthroughs.json",
     "https://raw.githubusercontent.com/AdguardTeam/cname-trackers/master/data/combined_disguised_microsites.json",
