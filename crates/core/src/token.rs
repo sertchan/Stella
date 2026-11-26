@@ -101,7 +101,6 @@ const TRACKING: &[&str] = &[
     "tag",
     "tags",
     "telemetry",
-    "tm",
     "tr",
     "track",
     "tracker",
@@ -218,6 +217,8 @@ mod tests {
         assert!(tracking("ss3.track"));
         assert!(!tracking("trackside"));
         assert!(!tracking("www"));
+        assert!(tracking("tr"));
+        assert!(!tracking("tm"));
         assert!(skipped("api.staging"));
         assert!(skipped("pre-prod"));
         assert!(skipped("dev2"));
