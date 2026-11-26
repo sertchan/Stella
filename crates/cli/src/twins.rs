@@ -22,35 +22,7 @@ const SIGNATURE_BYTES: usize = 160;
 const SIGNATURE_CAP: usize = 8 * 1024;
 
 fn mask(body: &[u8]) -> String {
-    let text =
-        String::from_utf8_lossy(&body[..body.len().min(SIGNATURE_BYTES)]).to_ascii_lowercase();
-    let mut out = String::with_capacity(text.len());
-    let mut run = String::new();
-    let flush = |run: &mut String, out: &mut String| {
-        if run.is_empty() {
-            return;
-        }
-        let hex = run.len() >= 8 && run.chars().all(|c| c.is_ascii_hexdigit());
-        let digits = run.chars().all(|c| c.is_ascii_digit());
-        if digits {
-            out.push('N');
-        } else if hex {
-            out.push('H');
-        } else {
-            out.push_str(run);
-        }
-        run.clear();
-    };
-    for c in text.chars() {
-        if c.is_ascii_alphanumeric() {
-            run.push(c);
-        } else {
-            flush(&mut run, &mut out);
-            out.push(c);
-        }
-    }
-    flush(&mut run, &mut out);
-    out
+    stella_core::shape::mask(&body[..body.len().min(SIGNATURE_BYTES)])
 }
 
 fn signature(p: &HostProbe) -> Option<String> {
