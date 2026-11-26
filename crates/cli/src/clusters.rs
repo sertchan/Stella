@@ -320,7 +320,7 @@ fn load(ctx: &Ctx) -> Result<Vec<ProbeRow>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
+pub fn build(ctx: &Ctx, loose: bool) -> Result<Vec<Cluster>> {
     let rows = load(ctx)?;
     let names: FxHashMap<String, (String, bool)> = ctx
         .store
@@ -339,7 +339,7 @@ pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
     let control = ctx
         .store
         .all("SELECT DISTINCT host FROM origin WHERE source = 'control'")?;
-    let clusters = cluster_with(&rows, args.loose, |host| {
+    Ok(cluster_with(&rows, loose, |host| {
         let (regdom, listed) = names
             .get(host)
             .cloned()
@@ -352,7 +352,33 @@ pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
             allowed: ctx.allowed(host).is_some(),
             control: control.contains(host),
         }
-    });
+    }))
+}
+
+pub fn summary(ctx: &Ctx, min_zones: usize, control_zones: usize) -> Result<String> {
+    let clusters = build(ctx, true)?;
+    let mut parts: Vec<String> = Vec::new();
+    for label in [Label::Candidate, Label::New] {
+        let hit: Vec<&Cluster> = clusters
+            .iter()
+            .filter(|c| c.label(min_zones, control_zones) == label)
+            .collect();
+        let open: usize = hit
+            .iter()
+            .map(|c| c.members.iter().filter(|m| m.open()).count())
+            .sum();
+        parts.push(format!(
+            "{}={} open-hosts={open}",
+            label.as_str().to_ascii_lowercase(),
+            hit.len()
+        ));
+    }
+    Ok(parts.join(" "))
+}
+
+pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
+    let clusters = build(ctx, args.loose)?;
+    let rows = load(ctx)?;
     let mut out = Out::new();
     if let Some(id) = args.show {
         let Some(c) = clusters.iter().find(|c| c.id == id) else {

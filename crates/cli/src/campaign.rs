@@ -255,6 +255,13 @@ async fn campaign(
         let _s = Stage::start("audit");
         audit::apply(ctx)?
     };
+    {
+        let _s = Stage::start("clusters");
+        eprintln!(
+            "campaign: clusters {}",
+            crate::clusters::summary(ctx, 3, 2)?
+        );
+    }
     ctx.store.conn.execute(
         "INSERT OR REPLACE INTO done VALUES('campaign', ?1, ?2)",
         rusqlite::params![start_at.to_string(), start_at],
