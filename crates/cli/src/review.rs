@@ -90,8 +90,15 @@ pub fn review(ctx: &Ctx, args: ReviewArgs) -> Result<()> {
     Ok(())
 }
 
-pub fn export(ctx: &Ctx, args: ExportArgs) -> Result<()> {
-    let filter = if args.with_known {
+pub struct Selection {
+    pub zones: Vec<String>,
+    pub hosts: Vec<String>,
+    pub skipped: usize,
+    pub metadata: String,
+}
+
+pub fn select(ctx: &Ctx, with_known: bool, unfiled: bool, zones_min: usize) -> Result<Selection> {
+    let filter = if with_known {
         ""
     } else {
         "AND coalesce(name.known, '') = ''"
@@ -99,7 +106,7 @@ pub fn export(ctx: &Ctx, args: ExportArgs) -> Result<()> {
     let rows = ctx.store.rows(&format!(
         "SELECT DISTINCT hit.host FROM hit LEFT JOIN name USING(host) WHERE hit.verdict = 'PICK' {filter} ORDER BY hit.host"
     ))?;
-    let filed: FxHashSet<String> = if args.unfiled {
+    let filed: FxHashSet<String> = if unfiled {
         ctx.store
             .all("SELECT DISTINCT host FROM issue WHERE kind = 'deny'")?
     } else {
@@ -119,43 +126,115 @@ pub fn export(ctx: &Ctx, args: ExportArgs) -> Result<()> {
     let zones = promoted(
         &hosts,
         |h| ctx.regdom(h),
-        args.zones,
+        zones_min,
         |z| titled.contains(z) || titled.contains(&format!("www.{z}")),
     );
     let in_zone: FxHashSet<&str> = zones.values().flatten().copied().collect();
-    let mut out = Out::new();
-    let mut zone_names: Vec<&String> = zones.keys().collect();
+    let mut zone_names: Vec<String> = zones.keys().cloned().collect();
     zone_names.sort_unstable();
-    for z in &zone_names {
-        for l in line(args.format, z, true) {
-            out.row(&[&l]);
+    let meta = ctx.store.rows(
+        "SELECT hit.host, hit.product, hit.verdict, hit.evidence,
+                coalesce((SELECT group_concat(DISTINCT source) FROM origin WHERE origin.host = hit.host), '')
+         FROM hit WHERE hit.verdict = 'PICK' ORDER BY hit.host, hit.product",
+    )?;
+    let keep: FxHashSet<&str> = hosts.iter().copied().collect();
+    let mut metadata = String::from("host\tproduct\tverdict\tevidence\tsources\n");
+    for r in meta.iter().filter(|r| keep.contains(r[0].as_str())) {
+        metadata.push_str(&r.join("\t"));
+        metadata.push('\n');
+    }
+    Ok(Selection {
+        zones: zone_names,
+        hosts: hosts
+            .iter()
+            .filter(|h| !in_zone.contains(**h))
+            .map(|h| h.to_string())
+            .collect(),
+        skipped: rows.len() - hosts.len(),
+        metadata,
+    })
+}
+
+pub fn render(sel: &Selection, format: Format) -> String {
+    let mut text = String::new();
+    for z in &sel.zones {
+        for l in line(format, z, true) {
+            text.push_str(&l);
+            text.push('\n');
         }
     }
-    for h in hosts.iter().filter(|h| !in_zone.contains(**h)) {
-        for l in line(args.format, h, false) {
-            out.row(&[&l]);
+    for h in &sel.hosts {
+        for l in line(format, h, false) {
+            text.push_str(&l);
+            text.push('\n');
         }
+    }
+    text
+}
+
+pub fn export(ctx: &Ctx, args: ExportArgs) -> Result<()> {
+    let sel = select(ctx, args.with_known, args.unfiled, args.zones)?;
+    let mut out = Out::new();
+    for l in render(&sel, args.format).lines() {
+        out.row(&[l]);
     }
     drop(out);
     if let Some(path) = &args.metadata {
-        let meta = ctx.store.rows(
-            "SELECT hit.host, hit.product, hit.verdict, hit.evidence,
-                    coalesce((SELECT group_concat(DISTINCT source) FROM origin WHERE origin.host = hit.host), '')
-             FROM hit WHERE hit.verdict = 'PICK' ORDER BY hit.host, hit.product",
-        )?;
-        let keep: FxHashSet<&str> = hosts.iter().copied().collect();
-        let mut text = String::from("host\tproduct\tverdict\tevidence\tsources\n");
-        for r in meta.iter().filter(|r| keep.contains(r[0].as_str())) {
-            text.push_str(&r.join("\t"));
-            text.push('\n');
-        }
-        std::fs::write(path, text)?;
+        std::fs::write(path, &sel.metadata)?;
     }
     eprintln!(
         "hosts={} zones={} skipped={}",
-        hosts.len() - in_zone.len(),
-        zone_names.len(),
-        rows.len() - hosts.len()
+        sel.hosts.len(),
+        sel.zones.len(),
+        sel.skipped
+    );
+    Ok(())
+}
+
+#[derive(clap::Args)]
+pub struct PublishArgs {
+    #[arg(
+        long,
+        help = "Directory that gets every list format, metadata.tsv and counts.tsv"
+    )]
+    dir: std::path::PathBuf,
+    #[arg(
+        long,
+        default_value_t = 3,
+        help = "Picks a zone needs before the whole zone is listed, 0 turns it off"
+    )]
+    zones: usize,
+}
+
+pub const FILES: &[(&str, Format)] = &[
+    ("domains.txt", Format::Domains),
+    ("hosts.txt", Format::Hosts),
+    ("adblock.txt", Format::Adblock),
+    ("rpz.txt", Format::Rpz),
+];
+
+pub fn publish(ctx: &Ctx, args: PublishArgs) -> Result<()> {
+    let sel = select(ctx, false, true, args.zones)?;
+    std::fs::create_dir_all(&args.dir)?;
+    for (name, format) in FILES {
+        std::fs::write(args.dir.join(name), render(&sel, *format))?;
+    }
+    std::fs::write(args.dir.join("metadata.tsv"), &sel.metadata)?;
+    std::fs::write(
+        args.dir.join("counts.tsv"),
+        format!(
+            "zones\t{}\nhosts\t{}\nskipped\t{}\n",
+            sel.zones.len(),
+            sel.hosts.len(),
+            sel.skipped
+        ),
+    )?;
+    eprintln!(
+        "published to {}: zones={} hosts={} skipped={}",
+        args.dir.display(),
+        sel.zones.len(),
+        sel.hosts.len(),
+        sel.skipped
     );
     Ok(())
 }

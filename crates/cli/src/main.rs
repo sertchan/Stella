@@ -120,6 +120,10 @@ enum Cmd {
     Review(review::ReviewArgs),
     #[command(about = "Print picked hosts that no reference list covers")]
     Export(review::ExportArgs),
+    #[command(
+        about = "Write every list format with metadata and counts for the picks no reference list covers"
+    )]
+    Publish(review::PublishArgs),
 }
 
 fn main() -> Result<()> {
@@ -161,6 +165,7 @@ fn main() -> Result<()> {
             Cmd::Twins(a) => twins::run(&mut ctx, a).await,
             Cmd::Review(a) => review::review(&ctx, a),
             Cmd::Export(a) => review::export(&ctx, a),
+            Cmd::Publish(a) => review::publish(&ctx, a),
         }
     })
 }
