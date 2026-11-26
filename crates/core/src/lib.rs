@@ -1,5 +1,6 @@
 pub mod config;
 pub mod known;
+pub mod md5;
 pub mod name;
 pub mod progress;
 pub mod psl;
