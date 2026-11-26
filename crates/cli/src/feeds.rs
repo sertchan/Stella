@@ -4,7 +4,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::time::{Duration, Instant};
 use stella_core::store::Row;
 use stella_net::client::{self, Options};
-use stella_sources::{adtech, extension, scripts, sdk, vendors};
+use stella_sources::{adtech, code, extension, scripts, sdk, vendors};
 use tokio::task::JoinSet;
 
 const PREBID_CAP: u64 = 400 * 1024 * 1024;
@@ -677,6 +677,92 @@ pub async fn sdks(ctx: &mut Ctx, par: usize) -> Result<()> {
     w.finish()?;
     eprintln!(
         "packages={total} scanned={scanned} hosts-unlisted={} secs={:.1}",
+        rows.len(),
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+const CODE_FILE_CAP: usize = 2 * 1024 * 1024;
+const SEARCH_SPACING: Duration = Duration::from_secs(7);
+
+pub async fn github_code(ctx: &mut Ctx, par: usize) -> Result<()> {
+    let started = Instant::now();
+    let done = ctx.store.done("github-code")?;
+    let tok = crate::audit::token();
+    if tok.is_none() {
+        anyhow::bail!("code search needs a GitHub token from GH_TOKEN or gh auth");
+    }
+    let c = web(60)?;
+    let w = ctx.store.writer()?;
+    let mut files: FxHashMap<String, String> = FxHashMap::default();
+    let queries: Vec<&str> = code::QUERIES
+        .iter()
+        .copied()
+        .filter(|q| !done.contains(*q))
+        .collect();
+    for (i, q) in queries.iter().enumerate() {
+        if i > 0 {
+            tokio::time::sleep(SEARCH_SPACING).await;
+        }
+        match stella_sources::audit::github_get(&c, &code::search_url(q), tok.as_deref()).await {
+            Ok(body) => {
+                for u in code::raw_urls(&body) {
+                    files.entry(u).or_insert_with(|| (*q).to_string());
+                }
+                w.send(Row::Done {
+                    kind: "github-code".into(),
+                    key: (*q).to_string(),
+                });
+            }
+            Err(e) => eprintln!("github code {q}: {e}"),
+        }
+    }
+    let total = files.len();
+    let mut by_host: FxHashMap<String, String> = FxHashMap::default();
+    let cc = c.clone();
+    each(
+        files.keys().cloned().collect(),
+        par,
+        move |u| {
+            let c = cc.clone();
+            async move {
+                client::fetch(&c, &u, CODE_FILE_CAP)
+                    .await
+                    .ok()
+                    .filter(|p| p.status == 200)
+                    .map(|p| p.body)
+            }
+        },
+        |u, body| {
+            if let Some(b) = body {
+                for h in scripts::hosts_in_script(&b) {
+                    by_host.entry(h).or_insert_with(|| u.clone());
+                }
+            }
+        },
+    )
+    .await;
+    let known = ctx.known();
+    let mut rows: Vec<(String, String)> = by_host
+        .into_iter()
+        .filter(|(h, _)| !known.contains(h) && real_host(ctx, h))
+        .collect();
+    rows.sort_unstable();
+    let mut out = Out::new();
+    for (h, u) in &rows {
+        out.row(&[h, u]);
+        w.send(Row::Origin {
+            host: h.clone(),
+            source: "github-code".into(),
+            detail: u.clone(),
+        });
+    }
+    drop(out);
+    w.finish()?;
+    eprintln!(
+        "queries={} files={total} hosts-unlisted={} secs={:.1}",
+        queries.len(),
         rows.len(),
         started.elapsed().as_secs_f64()
     );

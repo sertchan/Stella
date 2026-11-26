@@ -136,6 +136,13 @@ enum Cmd {
         par: usize,
     },
     #[command(
+        about = "Hosts in public code that a fixed set of GitHub code searches for server side tagging and DNS records finds"
+    )]
+    GithubCode {
+        #[arg(long, default_value_t = 16, help = "Files fetched in parallel")]
+        par: usize,
+    },
+    #[command(
         about = "Hosts in pages, scripts or reports given as URLs or files on stdin, defanged names included"
     )]
     Extract,
@@ -462,6 +469,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         Cmd::Cmp { par } => crate::feeds::cmp(ctx, par).await?,
         Cmd::Scripts { par } => crate::feeds::scripts(ctx, par).await?,
         Cmd::Extract => crate::feeds::extract(ctx).await?,
+        Cmd::GithubCode { par } => crate::feeds::github_code(ctx, par).await?,
         Cmd::Sdk { par } => crate::feeds::sdks(ctx, par).await?,
         Cmd::Extension { par } => crate::feeds::extensions(ctx, par).await?,
         Cmd::Passive { par } => crate::feeds::passive(ctx, par).await?,

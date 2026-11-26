@@ -27,7 +27,7 @@ pub struct Args {
 const LIST_CAP: usize = 64 * 1024 * 1024;
 const MAX_PAGES: usize = 400;
 
-fn token() -> Option<String> {
+pub fn token() -> Option<String> {
     for var in ["GH_TOKEN", "GITHUB_TOKEN"] {
         if let Ok(t) = std::env::var(var)
             && !t.trim().is_empty()
