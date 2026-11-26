@@ -112,6 +112,10 @@ pub enum Row {
         kind: &'static str,
         value: String,
     },
+    TlsPrint {
+        host: String,
+        print: String,
+    },
 }
 
 pub struct Store {
@@ -125,7 +129,9 @@ const RUN_LOG: &str = "CREATE TABLE IF NOT EXISTS run(started INTEGER NOT NULL, 
 
 const ZONE_DNS: &str = "CREATE TABLE IF NOT EXISTS zonedns(zone TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(zone, kind, value)) WITHOUT ROWID; CREATE INDEX IF NOT EXISTS zonedns_value ON zonedns(kind, value);";
 
-const MIGRATIONS: &[&str] = &[SCHEMA, PROBE_DIGEST, RUN_LOG, ZONE_DNS];
+const TLS_PRINT: &str = "CREATE TABLE IF NOT EXISTS tlsprint(host TEXT PRIMARY KEY, print TEXT NOT NULL) WITHOUT ROWID;";
+
+const MIGRATIONS: &[&str] = &[SCHEMA, PROBE_DIGEST, RUN_LOG, ZONE_DNS, TLS_PRINT];
 
 pub fn migrate(conn: &Connection) -> Result<i64> {
     let mut version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -315,6 +321,9 @@ fn insert(conn: &Connection, row: Row, at: i64) -> rusqlite::Result<usize> {
         } => conn
             .prepare_cached("INSERT OR IGNORE INTO apk_url VALUES(?1, ?2, ?3, ?4)")?
             .execute(params![pkg, method, url, member]),
+        Row::TlsPrint { host, print } => conn
+            .prepare_cached("INSERT OR REPLACE INTO tlsprint VALUES(?1, ?2)")?
+            .execute(params![host, print]),
         Row::ZoneDns { zone, kind, value } => conn
             .prepare_cached("INSERT OR IGNORE INTO zonedns VALUES(?1, ?2, ?3)")?
             .execute(params![zone, kind, value]),

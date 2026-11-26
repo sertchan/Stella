@@ -38,6 +38,7 @@ pub struct HostProbe {
     pub ip: IpAddr,
     pub results: Vec<(&'static str, Option<Resp>)>,
     pub sans: Vec<String>,
+    pub tls: String,
     pub fails: Vec<Fail>,
     pub requests: usize,
     pub elapsed: Duration,
@@ -85,6 +86,7 @@ struct Session<'a> {
     deadline: Instant,
     conn: Option<(Conn<TlsStream<TcpStream>>, OwnedSemaphorePermit)>,
     sans: Vec<String>,
+    print: String,
     fails: Vec<Fail>,
     requests: usize,
     dead: bool,
@@ -119,6 +121,9 @@ impl<'a> Session<'a> {
                 Ok(stream) => {
                     if self.sans.is_empty() {
                         self.sans = tls::sans(&stream);
+                    }
+                    if self.print.is_empty() {
+                        self.print = tls::print(&stream);
                     }
                     self.conn = Some((Conn::new(stream), permit));
                     self.connects += 1;
@@ -234,6 +239,7 @@ impl<'a> Session<'a> {
             deadline: self.deadline,
             conn: None,
             sans: Vec::new(),
+            print: String::new(),
             fails: Vec::new(),
             requests: 0,
             dead: false,
@@ -299,6 +305,7 @@ impl Prober {
             deadline: started + self.budget,
             conn: None,
             sans: Vec::new(),
+            print: String::new(),
             fails: Vec::new(),
             requests: 0,
             dead: false,
@@ -372,6 +379,7 @@ impl Prober {
             ip,
             results,
             sans: std::mem::take(&mut s.sans),
+            tls: std::mem::take(&mut s.print),
             fails: std::mem::take(&mut s.fails),
             requests: s.requests,
             elapsed: started.elapsed(),

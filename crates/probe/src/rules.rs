@@ -454,6 +454,7 @@ mod tests {
             ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             results,
             sans: Vec::new(),
+            tls: String::new(),
             fails: Vec::new(),
             requests: 0,
             elapsed: std::time::Duration::ZERO,

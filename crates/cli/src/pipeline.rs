@@ -280,6 +280,12 @@ pub async fn probe(
                 digest: stella_core::shape::digest(&r.body, &p.host),
             });
         }
+        if !p.tls.is_empty() {
+            w.send(Row::TlsPrint {
+                host: p.host.clone(),
+                print: p.tls.clone(),
+            });
+        }
         for san in &p.sans {
             w.send(Row::Cert {
                 host: p.host.clone(),
