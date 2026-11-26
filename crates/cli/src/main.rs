@@ -8,6 +8,7 @@ mod cname;
 mod crawl;
 mod ctx;
 mod feeds;
+mod fuse;
 mod get;
 mod hunt;
 mod known;
@@ -77,6 +78,10 @@ enum Cmd {
         about = "Zones that share a private name server, SOA mailbox or TXT token with a pick zone"
     )]
     Mates(mates::Args),
+    #[command(
+        about = "Raise REVIEW hits with two independent signal kinds to PICK and list unhit hosts that have two"
+    )]
+    Fuse(fuse::Args),
     #[command(about = "Address neighbours, certificate names and zones of the picks")]
     Pivot(pivot::Args),
     #[command(about = "Filter, resolve, cap, probe and pivot the names on stdin in one pass")]
@@ -132,6 +137,7 @@ fn main() -> Result<()> {
             Cmd::Recheck(a) => recheck::run(&mut ctx, a).await,
             Cmd::Records(a) => records::run(&mut ctx, a).await,
             Cmd::Mates(a) => mates::run(&ctx, a),
+            Cmd::Fuse(a) => fuse::run(&ctx, a),
             Cmd::Pivot(a) => pivot::run(&mut ctx, a),
             Cmd::Hunt(a) => hunt::run(&mut ctx, a).await,
             Cmd::Allow(a) => allow::run(&mut ctx, a),

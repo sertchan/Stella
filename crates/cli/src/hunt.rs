@@ -44,7 +44,7 @@ pub struct Args {
         default_value_t = 40,
         help = "Skip pivot addresses shared by more hosts than this"
     )]
-    max_ip: i64,
+    pub max_ip: i64,
     #[arg(long, help = "Also probe names resolved in an earlier run")]
     again: bool,
     #[arg(long, help = "Pivot from REVIEW hits too, not only from picks")]

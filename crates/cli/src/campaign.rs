@@ -242,6 +242,15 @@ async fn campaign(
         let _s = Stage::start("recheck");
         recheck::recheck(ctx, &args.hunt.dns, &args.hunt.probe, args.recheck_days).await?;
     }
+    {
+        let _s = Stage::start("fuse");
+        crate::fuse::apply(
+            ctx,
+            2,
+            usize::try_from(args.hunt.max_ip).unwrap_or(0),
+            false,
+        )?;
+    }
     let (lowered, _) = {
         let _s = Stage::start("audit");
         audit::apply(ctx)?
