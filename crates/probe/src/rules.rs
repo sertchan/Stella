@@ -86,6 +86,8 @@ const UMAMI_SECOND: &[&str] = &["website-id"];
 const PLAUSIBLE_SECOND: &[&str] = &["data-domain", "/api/event"];
 const FATHOM_SECOND: &[&str] = &["data-site", "trackpageview"];
 const POSTHOG_SECOND: &[&str] = &["$pageview"];
+const JITSU_SECOND: &[&str] = &["writekey", "/api/s/"];
+const MIXPANEL_SECOND: &[&str] = &["api-js.mixpanel.com", "track_pageview"];
 const MIRROR_HEAD: usize = 256;
 const POSTHOG_MIN_BYTES: usize = 20_000;
 const COLLECTOR_MAX_BYTES: usize = 512;
@@ -266,10 +268,10 @@ fn products(p: &HostProbe) -> Vec<(&'static str, String)> {
     {
         out.push(("posthog", "/static/array.js".into()));
     }
-    if script(fixed(p, "/p.js"), "jitsu") {
+    if script_with(fixed(p, "/p.js"), "jitsu", JITSU_SECOND) {
         out.push(("jitsu", "/p.js".into()));
     }
-    if script(fixed(p, "/lib.min.js"), "mixpanel") {
+    if script_with(fixed(p, "/lib.min.js"), "mixpanel", MIXPANEL_SECOND) {
         out.push(("mixpanel-proxy", "/lib.min.js".into()));
     }
     if has(fixed(p, "/health"), "\"acceptingEvents\"") {
@@ -814,6 +816,8 @@ mod tests {
         let umami = "const{currentScript:u,referrer:m}=c,p=e.umamiConfig||{};$=k(\"website-id\"),x=k(\"host-url\")";
         let plausible = "a.domain=o.getAttribute(\"data-domain\");window.plausible=g";
         let fathom = "window.fathom=(()=>{var s=document.querySelector(\"script[data-site]\")";
+        let jitsu = "const jitsu=e=>{let t=e.writeKey;fetch(`${e.host}/api/s/${n}`)}";
+        let mixpanel = "var MIXPANEL_LIB=\"mixpanel\";k={api_host:\"https://api-js.mixpanel.com\",track_pageview:!1}";
         assert_eq!(
             products_of(&js("/script.js", umami), "t"),
             [("umami", PICK)]
@@ -826,6 +830,11 @@ mod tests {
             products_of(&js("/script.js", fathom), "t"),
             [("fathom", PICK)]
         );
+        assert_eq!(products_of(&js("/p.js", jitsu), "t"), [("jitsu", PICK)]);
+        assert_eq!(
+            products_of(&js("/lib.min.js", mixpanel), "t"),
+            [("mixpanel-proxy", PICK)]
+        );
         for (path, bundle) in [
             ("/script.js", "import umami from \"./stats\";render()"),
             (
@@ -833,6 +842,8 @@ mod tests {
                 "var label = \"plausible analytics setup\";",
             ),
             ("/script.js", "const fathom = depth * 6;"),
+            ("/p.js", "var jitsu = 1;"),
+            ("/lib.min.js", "export const mixpanel = null;"),
         ] {
             assert!(products_of(&js(path, bundle), "t").is_empty(), "{bundle}");
         }
