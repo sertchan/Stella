@@ -59,6 +59,32 @@ pub fn follow(msg: &Message, name: &str) -> (Vec<String>, Vec<Ipv4Addr>) {
     (chain, addrs)
 }
 
+pub async fn lookup(
+    cfg: &Config,
+    names: &[String],
+    qtype: u16,
+) -> Result<FxHashMap<String, Vec<Data>>> {
+    let queries: Vec<Query> = names
+        .iter()
+        .map(|n| Query::recursive(n.clone(), qtype))
+        .collect();
+    let mut out: FxHashMap<String, Vec<Data>> = FxHashMap::default();
+    engine::run(cfg, &queries, |r| {
+        let Some(m) = r.msg else { return };
+        let data: Vec<Data> = m
+            .answers
+            .into_iter()
+            .filter(|a| a.rtype == qtype)
+            .map(|a| a.data)
+            .collect();
+        if !data.is_empty() {
+            out.insert(r.query.name.clone(), data);
+        }
+    })
+    .await?;
+    Ok(out)
+}
+
 pub fn public(a: &Ipv4Addr) -> bool {
     !(a.is_private()
         || a.is_loopback()
