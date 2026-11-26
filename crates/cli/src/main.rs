@@ -11,6 +11,7 @@ mod feeds;
 mod get;
 mod hunt;
 mod known;
+mod mates;
 mod pipeline;
 mod pivot;
 mod probe;
@@ -72,6 +73,10 @@ enum Cmd {
         about = "IPv6 addresses and HTTPS targets of hosts, and NS, SOA and TXT verification records of their zones"
     )]
     Records(records::Args),
+    #[command(
+        about = "Zones that share a private name server, SOA mailbox or TXT token with a pick zone"
+    )]
+    Mates(mates::Args),
     #[command(about = "Address neighbours, certificate names and zones of the picks")]
     Pivot(pivot::Args),
     #[command(about = "Filter, resolve, cap, probe and pivot the names on stdin in one pass")]
@@ -126,6 +131,7 @@ fn main() -> Result<()> {
             Cmd::Score(a) => crawl::score(&mut ctx, a),
             Cmd::Recheck(a) => recheck::run(&mut ctx, a).await,
             Cmd::Records(a) => records::run(&mut ctx, a).await,
+            Cmd::Mates(a) => mates::run(&ctx, a),
             Cmd::Pivot(a) => pivot::run(&mut ctx, a),
             Cmd::Hunt(a) => hunt::run(&mut ctx, a).await,
             Cmd::Allow(a) => allow::run(&mut ctx, a),
