@@ -1,9 +1,13 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 pub const A: u16 = 1;
 pub const NS: u16 = 2;
 pub const CNAME: u16 = 5;
 pub const SOA: u16 = 6;
+pub const TXT: u16 = 16;
+pub const AAAA: u16 = 28;
+pub const SVCB: u16 = 64;
+pub const HTTPS: u16 = 65;
 pub const OPT: u16 = 41;
 pub const NSEC: u16 = 47;
 pub const AXFR: u16 = 252;
@@ -19,12 +23,24 @@ const MAX_POINTER_HOPS: usize = 64;
 const ECS_OPTION: u16 = 8;
 const ECS_FAMILY_V4: u16 = 1;
 const ECS_PREFIX: u8 = 24;
+const SVC_ALPN: u16 = 1;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Data {
     A(Ipv4Addr),
+    Aaaa(Ipv6Addr),
     Name(String),
     Nsec(String),
+    Svcb {
+        priority: u16,
+        target: String,
+        alpn: Vec<String>,
+    },
+    Soa {
+        mname: String,
+        rname: String,
+    },
+    Txt(Vec<String>),
     Other,
 }
 
@@ -199,6 +215,36 @@ fn u16_at(buf: &[u8], pos: usize) -> Option<u16> {
     Some(u16::from_be_bytes(buf.get(pos..pos + 2)?.try_into().ok()?))
 }
 
+fn strings(mut data: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    while let Some((&len, rest)) = data.split_first() {
+        let len = usize::from(len).min(rest.len());
+        out.push(String::from_utf8_lossy(&rest[..len]).into_owned());
+        data = &rest[len..];
+    }
+    out
+}
+
+fn svcb(buf: &[u8], start: usize, end: usize) -> Option<Data> {
+    let priority = u16_at(buf, start)?;
+    let (target, mut pos) = read_name(buf, start + 2)?;
+    let mut alpn = Vec::new();
+    while pos + 4 <= end {
+        let key = u16_at(buf, pos)?;
+        let len = usize::from(u16_at(buf, pos + 2)?);
+        let value = buf.get(pos + 4..pos + 4 + len)?;
+        if key == SVC_ALPN {
+            alpn = strings(value);
+        }
+        pos += 4 + len;
+    }
+    Some(Data::Svcb {
+        priority,
+        target,
+        alpn,
+    })
+}
+
 fn read_records(buf: &[u8], mut pos: usize, count: usize, out: &mut Vec<Record>) -> Option<usize> {
     for _ in 0..count {
         let (owner, p) = read_name(buf, pos)?;
@@ -210,6 +256,17 @@ fn read_records(buf: &[u8], mut pos: usize, count: usize, out: &mut Vec<Record>)
             A if rdlen == 4 => Data::A(Ipv4Addr::new(rdata[0], rdata[1], rdata[2], rdata[3])),
             CNAME | NS => Data::Name(read_name(buf, rd)?.0),
             NSEC => Data::Nsec(read_name(buf, rd)?.0),
+            AAAA if rdlen == 16 => {
+                let o: [u8; 16] = rdata.try_into().ok()?;
+                Data::Aaaa(Ipv6Addr::from(o))
+            }
+            SVCB | HTTPS => svcb(buf, rd, rd + rdlen)?,
+            SOA => {
+                let (mname, p) = read_name(buf, rd)?;
+                let (rname, _) = read_name(buf, p)?;
+                Data::Soa { mname, rname }
+            }
+            TXT => Data::Txt(strings(rdata)),
             _ => Data::Other,
         };
         out.push(Record { owner, rtype, data });
@@ -329,6 +386,51 @@ mod tests {
         assert_eq!(&q[plain + 11..], &[0, 8, 0, 7, 0, 1, 24, 0, 81, 2, 69]);
         assert!(!add_ecs(&mut q, [1, 2, 3]));
         assert_eq!(parse(&q).expect("parse").qname, "a.com");
+    }
+
+    #[test]
+    fn parses_aaaa_https_soa_and_txt() {
+        let mut m = vec![0x12, 0x34, 0x81, 0x80, 0, 1, 0, 4, 0, 0, 0, 0];
+        m.extend_from_slice(b"\x01a\x04shop\x03com\x00\x00\x41\x00\x01");
+        let rr = |m: &mut Vec<u8>, rtype: u16, rdata: &[u8]| {
+            m.extend_from_slice(&[0xc0, 12]);
+            m.extend_from_slice(&rtype.to_be_bytes());
+            m.extend_from_slice(&[0, 1, 0, 0, 0, 60]);
+            m.extend_from_slice(&(rdata.len() as u16).to_be_bytes());
+            m.extend_from_slice(rdata);
+        };
+        let v6: Ipv6Addr = "2001:db8::1".parse().expect("v6");
+        rr(&mut m, AAAA, &v6.octets());
+        let mut https = vec![0, 1];
+        https.extend_from_slice(b"\x04sgtm\x06vendor\x03net\x00");
+        https.extend_from_slice(&[0, 1, 0, 6, 2, b'h', b'2', 2, b'h', b'3']);
+        https.extend_from_slice(&[0, 3, 0, 2, 1, 187]);
+        rr(&mut m, HTTPS, &https);
+        let mut soa = b"\x03ns1\xc0\x0e\x0ahostmaster\xc0\x0e".to_vec();
+        soa.extend_from_slice(&[0; 20]);
+        rr(&mut m, SOA, &soa);
+        rr(&mut m, TXT, b"\x05v=spf\x03abc");
+        let msg = parse(&m).expect("parse");
+        let data: Vec<Data> = msg.answers.into_iter().map(|r| r.data).collect();
+        assert_eq!(
+            data,
+            [
+                Data::Aaaa(v6),
+                Data::Svcb {
+                    priority: 1,
+                    target: "sgtm.vendor.net".into(),
+                    alpn: vec!["h2".into(), "h3".into()],
+                },
+                Data::Soa {
+                    mname: "ns1.shop.com".into(),
+                    rname: "hostmaster.shop.com".into(),
+                },
+                Data::Txt(vec!["v=spf".into(), "abc".into()]),
+            ]
+        );
+        let mut short = m.clone();
+        short.truncate(m.len() - 3);
+        assert!(parse(&short).is_none());
     }
 
     #[test]
