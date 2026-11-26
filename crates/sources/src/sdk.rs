@@ -237,8 +237,56 @@ pub fn hosts_in_archive(data: &[u8]) -> Option<Vec<String>> {
     Some(out)
 }
 
+static MAVEN_COORD: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"\b([a-z][a-z0-9_-]*(?:\.[a-z0-9_-]+)+):([a-zA-Z0-9_.-]+)\b")
+        .expect("MAVEN_COORD regex")
+});
+
+pub fn maven_coords(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = MAVEN_COORD
+        .captures_iter(text)
+        .filter_map(|c| {
+            let (g, a) = (c.get(1)?.as_str(), c.get(2)?.as_str());
+            let version = a.chars().all(|ch| ch.is_ascii_digit() || ch == '.');
+            (!version).then(|| format!("maven:{g}:{a}"))
+        })
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+pub fn index_links(json: &str, base: &str, part: &str) -> Vec<String> {
+    let mut out: Vec<String> = serde_json::from_str::<Vec<String>>(json)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|h| h.contains(part) && h.starts_with(base))
+        .map(|h| h.split(['?', '#']).next().unwrap_or(&h).to_string())
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reads_index_links_and_maven_coordinates() {
+        let json = r#"["https://play.google.com/sdks/details/com-appsflyer?hl=en","https://play.google.com/store","https://play.google.com/sdks/details/com-appsflyer"]"#;
+        assert_eq!(
+            index_links(json, "https://play.google.com/sdks", "/details/"),
+            ["https://play.google.com/sdks/details/com-appsflyer"]
+        );
+        let text = "Maven: com.appsflyer:af-android-sdk\nVersion 6.15.0\nAlso com.google.android.gms:play-services-ads and 1.2:3.4";
+        assert_eq!(
+            maven_coords(text),
+            [
+                "maven:com.appsflyer:af-android-sdk",
+                "maven:com.google.android.gms:play-services-ads"
+            ]
+        );
+    }
+
     use super::*;
     use std::io::Write;
 

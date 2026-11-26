@@ -150,7 +150,14 @@ enum Cmd {
     #[command(
         about = "Maven coordinates of the SDKs in the Google Play SDK Index, as input for the sdk source"
     )]
-    SdkIndex,
+    SdkIndex {
+        #[arg(
+            long,
+            default_value_t = 0,
+            help = "SDK pages read at most, 0 reads all"
+        )]
+        limit: usize,
+    },
     #[command(
         about = "Hosts in pages, scripts or reports given as URLs or files on stdin, defanged names included"
     )]
@@ -482,7 +489,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         Cmd::Cmp { par } => crate::feeds::cmp(ctx, par).await?,
         Cmd::Scripts { par } => crate::feeds::scripts(ctx, par).await?,
         Cmd::Extract => crate::feeds::extract(ctx).await?,
-        Cmd::SdkIndex => crate::feeds::sdk_index(ctx).await?,
+        Cmd::SdkIndex { limit } => crate::feeds::sdk_index(ctx, limit).await?,
         Cmd::GithubCode { par } => crate::feeds::github_code(ctx, par).await?,
         Cmd::Sdk { par } => crate::feeds::sdks(ctx, par).await?,
         Cmd::Extension { par } => crate::feeds::extensions(ctx, par).await?,

@@ -303,3 +303,65 @@ pub async fn run(
     }
     Ok(())
 }
+
+pub async fn render(b: &Browser, url: &str, wait: Duration, expression: &str) -> Result<String> {
+    let ctx = b
+        .call(
+            None,
+            "Target.createBrowserContext",
+            json!({ "disposeOnDetach": true }),
+        )
+        .await?["browserContextId"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let run = async {
+        let target = b
+            .call(
+                None,
+                "Target.createTarget",
+                json!({ "url": "about:blank", "browserContextId": ctx }),
+            )
+            .await?;
+        let target = target["targetId"]
+            .as_str()
+            .ok_or_else(|| anyhow!("no target"))?
+            .to_string();
+        let attached = b
+            .call(
+                None,
+                "Target.attachToTarget",
+                json!({ "targetId": target, "flatten": true }),
+            )
+            .await?;
+        let session = attached["sessionId"]
+            .as_str()
+            .ok_or_else(|| anyhow!("no session"))?
+            .to_string();
+        b.call(Some(&session), "Page.enable", json!({})).await?;
+        b.call(Some(&session), "Page.navigate", json!({ "url": url }))
+            .await?;
+        tokio::time::sleep(wait).await;
+        let v = b
+            .call(
+                Some(&session),
+                "Runtime.evaluate",
+                json!({ "expression": expression, "returnByValue": true }),
+            )
+            .await?;
+        b.forget(&session);
+        v.pointer("/result/value")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| anyhow!("page gave no value"))
+    };
+    let out = run.await;
+    let _ = b
+        .call(
+            None,
+            "Target.disposeBrowserContext",
+            json!({ "browserContextId": ctx }),
+        )
+        .await;
+    out
+}

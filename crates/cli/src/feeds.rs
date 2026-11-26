@@ -768,3 +768,88 @@ pub async fn github_code(ctx: &mut Ctx, par: usize) -> Result<()> {
     );
     Ok(())
 }
+
+const SDK_INDEX: &str = "https://play.google.com/sdks";
+const SDK_INDEX_WAIT: Duration = Duration::from_secs(8);
+const SDK_LINKS_JS: &str = r#"JSON.stringify(Array.from(document.querySelectorAll("a[href]")).map(a => a.href).filter(h => h.includes("/sdks/")))"#;
+const SDK_TEXT_JS: &str = "(document.body && document.body.innerText) || \"\"";
+
+async fn links(b: &stella_crawl::cdp::Browser, url: &str, part: &str) -> Vec<String> {
+    let Ok(v) = stella_crawl::crawl::render(b, url, SDK_INDEX_WAIT, SDK_LINKS_JS).await else {
+        return Vec::new();
+    };
+    sdk::index_links(&v, SDK_INDEX, part)
+}
+
+pub async fn sdk_index(ctx: &mut Ctx, limit: usize) -> Result<()> {
+    let started = Instant::now();
+    let launch = stella_crawl::cdp::Launch {
+        headful: false,
+        display: None,
+        width: 1280,
+        height: 900,
+        extra: Vec::new(),
+    };
+    let b =
+        stella_crawl::cdp::Browser::launch(&launch, &ctx.paths.cache().join("sdk-index")).await?;
+    let root = links(&b, SDK_INDEX, "/sdks/").await;
+    let mut categories: Vec<String> = root
+        .iter()
+        .filter(|h| h.contains("/categories/"))
+        .cloned()
+        .collect();
+    let mut details: FxHashSet<String> = root
+        .iter()
+        .filter(|h| h.contains("/details/"))
+        .cloned()
+        .collect();
+    eprintln!(
+        "sdk index: {} links, {} categories, {} sdks on the first page",
+        root.len(),
+        categories.len(),
+        details.len()
+    );
+    categories.sort_unstable();
+    for c in &categories {
+        let all = links(&b, c, "/sdks/").await;
+        let found: Vec<String> = all
+            .iter()
+            .filter(|h| h.contains("/details/"))
+            .cloned()
+            .collect();
+        eprintln!("sdk index: {c} links={} sdks={}", all.len(), found.len());
+        if found.is_empty() {
+            for l in all.iter().take(5) {
+                eprintln!("sdk index:   {l}");
+            }
+        }
+        details.extend(found);
+    }
+    let mut coords: FxHashSet<String> = FxHashSet::default();
+    let mut details: Vec<String> = details.into_iter().collect();
+    details.sort_unstable();
+    if limit > 0 {
+        details.truncate(limit);
+    }
+    for d in &details {
+        if let Ok(text) = stella_crawl::crawl::render(&b, d, SDK_INDEX_WAIT, SDK_TEXT_JS).await {
+            coords.extend(sdk::maven_coords(&text));
+        }
+    }
+    b.close().await;
+    let mut coords: Vec<String> = coords.into_iter().collect();
+    coords.sort_unstable();
+    let mut out = Out::new();
+    for c in &coords {
+        out.row(&[c]);
+    }
+    drop(out);
+    eprintln!(
+        "sdk index: categories={} sdks={} maven={} secs={:.1}",
+        categories.len(),
+        details.len(),
+        coords.len(),
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
