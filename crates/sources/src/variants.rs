@@ -248,7 +248,7 @@ pub const CCTLDS: &[&str] = &[
 const SECOND_LEVEL: &[&str] = &["com", "co", "net", "org", "ac", "or", "ne"];
 
 static INFRA: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(edgekey|edgesuite|akadns|akamaiedge|akamaized|akamai|cdn\.cloudflare|b-cdn|amazonaws|cloudfront|azureedge|azurefd|trafficmanager|fastly|fbcdn|cloudapp|azurewebsites|herokuapp|googleusercontent|appspot|run)\.(net|com|app)$")
+    Regex::new(r"(^|\.)(edgekey|edgesuite|akadns|akamaiedge|akamaized|akamai|cdn\.cloudflare|b-cdn|amazonaws|cloudfront|azureedge|azurefd|trafficmanager|fastly|fbcdn|cloudapp|azurewebsites|herokuapp|googleusercontent|appspot|run)\.(net|com|app)$")
         .expect("INFRA regex")
 });
 
@@ -442,6 +442,7 @@ mod tests {
         let v = all("t.eu-west-1.collect.example.com");
         assert!(v.contains(&"t.us-east-1.collect.example.com".to_string()));
         assert!(all("x.eu.cloudfront.net").is_empty());
+        assert!(infrastructure("svc-abc.a.run.app") && !infrastructure("myrun.app"));
         let t = cctld_twins("sgtm.omio.de");
         assert!(t.contains(&"sgtm.omio.fr".to_string()));
         assert!(cctld_twins("sst.brand.co.uk").contains(&"sst.brand.de".to_string()));
