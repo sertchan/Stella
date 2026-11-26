@@ -4,7 +4,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::time::{Duration, Instant};
 use stella_core::store::Row;
 use stella_net::client::{self, Options};
-use stella_sources::{adtech, scripts, vendors};
+use stella_sources::{adtech, extension, scripts, vendors};
 use tokio::task::JoinSet;
 
 const PREBID_CAP: u64 = 400 * 1024 * 1024;
@@ -476,6 +476,97 @@ pub async fn passive_zones(ctx: &mut Ctx, input: Vec<String>, par: usize) -> Res
     w.finish()?;
     eprintln!(
         "zones={total} ok={ok} names={names} secs={:.1}",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+const EXTENSION_CAP: usize = 64 * 1024 * 1024;
+
+async fn extension_file(c: &reqwest::Client, store: &extension::Store) -> Option<Vec<u8>> {
+    let url = match store {
+        extension::Store::Chrome(id) => extension::chrome_url(id),
+        extension::Store::Firefox(slug) => {
+            let api = client::fetch(c, &extension::firefox_api(slug), 1024 * 1024)
+                .await
+                .ok()?;
+            extension::firefox_file(&api.body)?
+        }
+    };
+    let p = client::fetch(c, &url, EXTENSION_CAP).await.ok()?;
+    (p.status == 200 && !p.body.is_empty()).then_some(p.body)
+}
+
+pub async fn extensions(ctx: &mut Ctx, par: usize) -> Result<()> {
+    let started = Instant::now();
+    let done = ctx.store.done("extension")?;
+    let keys: Vec<String> = stdin_rows()
+        .into_iter()
+        .filter_map(|r| r.first().and_then(|l| extension::Store::parse(l)))
+        .map(|s| s.key())
+        .filter(|k| !done.contains(k))
+        .collect();
+    let total = keys.len();
+    let root = ctx.paths.cache().join("ext");
+    let c = web(120)?;
+    let w = ctx.store.writer()?;
+    let mut by_host: FxHashMap<String, FxHashSet<String>> = FxHashMap::default();
+    let mut fetched = 0usize;
+    let cc = c.clone();
+    each(
+        keys,
+        par,
+        move |k| {
+            let c = cc.clone();
+            async move {
+                let store = extension::Store::parse(&k)?;
+                extension_file(&c, &store)
+                    .await
+                    .map(|b| (store.file_name(), b))
+            }
+        },
+        |key, got| {
+            if let Some((name, body)) = got {
+                fetched += 1;
+                let dir = root.join(key.replace(':', "-"));
+                if std::fs::create_dir_all(&dir).is_ok() {
+                    let _ = std::fs::write(dir.join(name), &body);
+                }
+                for h in extension::hosts(&body).unwrap_or_default() {
+                    by_host.entry(h).or_default().insert(key.clone());
+                }
+            }
+            w.send(Row::Done {
+                kind: "extension".into(),
+                key,
+            });
+        },
+    )
+    .await;
+    let known = ctx.known();
+    let mut rows: Vec<(String, FxHashSet<String>)> = by_host
+        .into_iter()
+        .filter(|(h, _)| !known.contains(h))
+        .collect();
+    rows.sort_unstable_by(|a, b| b.1.len().cmp(&a.1.len()).then_with(|| a.0.cmp(&b.0)));
+    let mut out = Out::new();
+    for (h, exts) in &rows {
+        let mut list: Vec<&String> = exts.iter().collect();
+        list.sort_unstable();
+        out.row(&[h, &exts.len().to_string(), list[0]]);
+        for e in list {
+            w.send(Row::Origin {
+                host: h.clone(),
+                source: "extension".into(),
+                detail: e.clone(),
+            });
+        }
+    }
+    drop(out);
+    w.finish()?;
+    eprintln!(
+        "extensions={total} fetched={fetched} hosts-unlisted={} secs={:.1}",
+        rows.len(),
         started.elapsed().as_secs_f64()
     );
     Ok(())

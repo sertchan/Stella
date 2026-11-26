@@ -122,6 +122,13 @@ enum Cmd {
         par: usize,
     },
     #[command(
+        about = "Hosts in the manifest and code of browser extensions named on stdin as chrome:ID or firefox:SLUG"
+    )]
+    Extension {
+        #[arg(long, default_value_t = 8, help = "Extensions fetched in parallel")]
+        par: usize,
+    },
+    #[command(
         about = "Hosts in pages, scripts or reports given as URLs or files on stdin, defanged names included"
     )]
     Extract,
@@ -448,6 +455,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         Cmd::Cmp { par } => crate::feeds::cmp(ctx, par).await?,
         Cmd::Scripts { par } => crate::feeds::scripts(ctx, par).await?,
         Cmd::Extract => crate::feeds::extract(ctx).await?,
+        Cmd::Extension { par } => crate::feeds::extensions(ctx, par).await?,
         Cmd::Passive { par } => crate::feeds::passive(ctx, par).await?,
         Cmd::CnameVendors {
             dns,
