@@ -7,8 +7,8 @@ use std::time::Duration;
 use tokio::sync::{Semaphore, mpsc};
 use tokio::time::Instant;
 
-pub(crate) const CONSENT_JS: &str = include_str!("consent.js");
-pub(crate) const HOOKS_JS: &str = include_str!("hooks.js");
+pub(crate) const CONSENT_JS: &str = include_str!("../assets/consent.js");
+pub(crate) const HOOKS_JS: &str = include_str!("../assets/hooks.js");
 const BINDING: &str = "__stella";
 const NOISE: &[&str] = &[
     "accounts.google.com",
