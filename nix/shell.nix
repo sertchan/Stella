@@ -1,6 +1,7 @@
 {
   pkgs,
   lint,
+  weston,
 }: let
   preCommit = import ./pre-commit.nix {inherit pkgs lint;};
   prePush = import ./pre-push.nix {inherit pkgs lint;};
@@ -24,7 +25,7 @@ in
       pkgs.chromium
       pkgs.jadx
       pkgs.apkeep
-      pkgs.xvfb
+      weston
       preCommit
       prePush
       commitMsg

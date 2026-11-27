@@ -1,6 +1,7 @@
 {
   pkgs,
   rust,
+  weston,
 }: let
   chromium = pkgs.writeShellScript "chromium-in-build-sandbox" ''
     exec ${pkgs.chromium}/bin/chromium --no-sandbox --disable-dev-shm-usage "$@"
@@ -10,6 +11,7 @@ in
     // {
       nativeBuildInputs = rust.measured.nativeBuildInputs ++ [pkgs.git pkgs.jq];
       STELLA_CHROMIUM = chromium;
+      STELLA_WESTON = "${weston}/bin/weston";
       SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
       cargoArtifacts = rust.measuredDeps;
       cargoNextestExtraArgs = "--no-fail-fast --profile ci";

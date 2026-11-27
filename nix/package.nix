@@ -1,13 +1,14 @@
 {
   pkgs,
   rust,
+  weston,
 }: let
   inherit (pkgs.lib.strings) makeBinPath;
   runtime = [
     pkgs.chromium
     pkgs.jadx
     pkgs.apkeep
-    pkgs.xvfb
+    weston
   ];
 in
   rust.craneLib.buildPackage (rust.common

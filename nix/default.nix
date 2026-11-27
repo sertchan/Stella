@@ -5,12 +5,13 @@
     inherit pkgs;
     inherit (inputs) crane;
   };
-  stella = import ./package.nix {inherit pkgs rust;};
+  weston = import ./weston.nix {inherit pkgs;};
+  stella = import ./package.nix {inherit pkgs rust weston;};
   lint = import ./lint.nix {inherit pkgs rust;};
   checks = import ./checks.nix {
     inherit pkgs rust lint stella;
     inherit (inputs) self;
-    tests = import ./tests.nix {inherit pkgs rust;};
+    tests = import ./tests.nix {inherit pkgs rust weston;};
   };
 in {
   packages.${system} = {
@@ -20,7 +21,7 @@ in {
     coverage = checks.test;
   };
   devShells.${system} = {
-    default = import ./shell.nix {inherit pkgs lint;};
+    default = import ./shell.nix {inherit pkgs lint weston;};
   };
   formatter.${system} = import ./fmt.nix {inherit pkgs;};
   checks.${system} = checks;
