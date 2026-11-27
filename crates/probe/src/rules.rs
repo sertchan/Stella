@@ -424,34 +424,23 @@ mod tests {
     use crate::battery::{FULL_EXTRA, LITE};
     use std::net::{IpAddr, Ipv4Addr};
 
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "fixtures fill the optional reply slots of a probe"
-    )]
-    fn resp(status: u16, ctype: &str, server: &str, body: &str) -> Option<Resp> {
-        Some(Resp {
+    fn resp(status: u16, ctype: &str, server: &str, body: &str) -> Resp {
+        Resp {
             status,
             ctype: ctype.into(),
             server: server.into(),
             length: body.len() as i64,
             body: body.as_bytes().to_vec(),
             ..Resp::default()
-        })
+        }
     }
 
-    fn probe(host: &str, set: &[(&str, Option<Resp>)]) -> HostProbe {
+    fn probe(host: &str, set: &[(&str, Resp)]) -> HostProbe {
         let results = LITE
             .iter()
             .chain(FULL_EXTRA)
             .copied()
-            .map(|p| {
-                (
-                    p,
-                    set.iter()
-                        .find(|(q, _)| *q == p)
-                        .and_then(|(_, r)| r.clone()),
-                )
-            })
+            .map(|p| (p, set.iter().find(|(q, _)| *q == p).map(|(_, r)| r.clone())))
             .collect();
         HostProbe {
             host: host.into(),
@@ -572,9 +561,7 @@ mod tests {
             &[
                 ("/i", {
                     let mut r = resp(200, "image/gif", "", "GIF89a");
-                    if let Some(r) = r.as_mut() {
-                        r.cookies = vec!["sp".into()];
-                    }
+                    r.cookies = vec!["sp".into()];
                     r
                 }),
                 (
@@ -685,7 +672,7 @@ mod tests {
             "<!doctype html><html lang=\"en\"><head><title>Plaud Web</title><script>posthog.init('phc_x')</script></head>{}</html>",
             " ".repeat(26_000)
         );
-        let spa: Vec<(&str, Option<Resp>)> = [
+        let spa: Vec<(&str, Resp)> = [
             "/",
             "/static/array.js",
             "/health",
@@ -698,7 +685,7 @@ mod tests {
         .collect();
         assert!(products_of(&probe("web.plaud.ai", &spa), "web").is_empty());
         let bundle = format!("{}posthog umami", "x".repeat(30_000));
-        let js_spa: Vec<(&str, Option<Resp>)> = ["/static/array.js", "/script.js", RANDOM]
+        let js_spa: Vec<(&str, Resp)> = ["/static/array.js", "/script.js", RANDOM]
             .into_iter()
             .map(|p| (p, resp(200, "application/javascript", "", &bundle)))
             .collect();
@@ -771,9 +758,7 @@ mod tests {
             "Matomo - free/libre analytics platform",
         );
         let mut moved = resp(301, "", "", "");
-        if let Some(r) = moved.as_mut() {
-            r.location = "https://brave.com/".into();
-        }
+        moved.location = "https://brave.com/".into();
         let www = probe(
             "www.brave.com",
             &[("/", moved.clone()), ("/matomo.js", matomo_js.clone())],
@@ -798,9 +783,7 @@ mod tests {
         );
         assert_eq!(products_of(&proxy, "stats"), [("matomo", PICK)]);
         let mut sso = resp(302, "", "", "");
-        if let Some(r) = sso.as_mut() {
-            r.location = "/index.php?module=Login".into();
-        }
+        sso.location = "/index.php?module=Login".into();
         let dashboard = probe(
             "analytics.uni.edu",
             &[("/", sso), ("/matomo.js", matomo_js)],
@@ -858,21 +841,21 @@ mod tests {
     #[test]
     fn picks_second_stage_paths_from_the_root_reply() {
         let site = resp(200, "text/html", "", "<html><title>Shop</title></html>");
-        assert!(stage_two(site.as_ref(), None, false).is_empty());
-        assert_eq!(stage_two(site.as_ref(), None, true), FULL_EXTRA);
+        assert!(stage_two(Some(&site), None, false).is_empty());
+        assert_eq!(stage_two(Some(&site), None, true), FULL_EXTRA);
         let matomo = resp(
             200,
             "text/html",
             "",
             "<html><title>Sign in - Matomo</title></html>",
         );
-        assert_eq!(stage_two(matomo.as_ref(), None, false), ["/matomo.js"]);
+        assert_eq!(stage_two(Some(&matomo), None, false), ["/matomo.js"]);
         let api = resp(400, "", "", "");
-        assert_eq!(stage_two(api.as_ref(), None, false), FULL_EXTRA);
+        assert_eq!(stage_two(Some(&api), None, false), FULL_EXTRA);
         let redirect = resp(307, "", "", "");
         let login = resp(200, "text/html", "", "<html><title>Umami</title></html>");
         assert_eq!(
-            stage_two(redirect.as_ref(), login.as_ref(), false),
+            stage_two(Some(&redirect), Some(&login), false),
             ["/script.js"]
         );
         let rudder = resp(
@@ -881,7 +864,7 @@ mod tests {
             "",
             "{\"acceptingEvents\":\"TRUE\"}",
         );
-        assert_eq!(stage_two(rudder.as_ref(), None, false)[0], "/health");
+        assert_eq!(stage_two(Some(&rudder), None, false)[0], "/health");
         assert_eq!(
             same_host_target("/login", "a.io").as_deref(),
             Some("/login")
