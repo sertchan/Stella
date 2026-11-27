@@ -23,5 +23,8 @@ stella-probe.workspace = true
 stella-sources.workspace = true
 tokio.workspace = true
 
+[dev-dependencies]
+stella-testkit.workspace = true
+
 [lints]
 workspace = true

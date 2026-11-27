@@ -1807,6 +1807,7 @@ dependencies = [
  "stella-net",
  "stella-probe",
  "stella-sources",
+ "stella-testkit",
  "tokio",
 ]
 

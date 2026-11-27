@@ -27,6 +27,9 @@ mod sweep;
 mod twins;
 mod zone;
 
+#[cfg(test)]
+mod e2e;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use stella_core::config::Paths;
@@ -46,6 +49,12 @@ struct Cli {
     state: Option<std::path::PathBuf>,
     #[arg(long, global = true, help = "Print progress lines as JSON")]
     progress_json: bool,
+    #[arg(
+        long,
+        global = true,
+        help = "Read names or rows from this file instead of stdin"
+    )]
+    input: Option<std::path::PathBuf>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -127,7 +136,10 @@ enum Cmd {
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    run(Cli::parse())
+}
+
+fn run(cli: Cli) -> Result<()> {
     stella_core::progress::set_json(cli.progress_json);
     let mut paths = Paths::from_env();
     if let Some(s) = cli.state {
@@ -138,6 +150,7 @@ fn main() -> Result<()> {
         .build()?;
     rt.block_on(async move {
         let mut ctx = ctx::Ctx::open(paths)?;
+        ctx.input = cli.input;
         match cli.cmd {
             Cmd::Known(a) => known::run(&mut ctx, a).await,
             Cmd::Get(a) => get::run(a).await,
