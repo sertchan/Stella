@@ -74,8 +74,8 @@
       postInstall = (old.postInstall or "") + passed name;
     });
   formatted = "Run nix fmt and commit the result. The pre-commit hook checks this before every commit.";
-  crates = "$(find ${self}/crates -mindepth 1 -maxdepth 1 -type d | wc -l)";
-  rustFiles = "${count "*.rs" "${self}/crates"} Rust files in ${crates} crates";
+  crates = "$(find ${self}/engine -mindepth 1 -maxdepth 1 -type d | wc -l)";
+  rustFiles = "${count "*.rs" "${self}/engine"} Rust files in ${crates} crates";
   nixFiles = "${count "*.nix" self} Nix files";
 in {
   build = mkCheck {
@@ -107,10 +107,10 @@ in {
     tool = "rustfmt --version";
     scope = "${rustFiles}, edition 2024";
     script = ''
-      for c in ${self}/crates/*/; do
+      for c in ${self}/engine/*/; do
         printf '  %-10s %4s files\n' "$(basename "$c")" "$(find "$c" -name '*.rs' | wc -l)"
       done
-      find ${self}/crates -name '*.rs' -exec rustfmt --edition 2024 --check {} +
+      find ${self}/engine -name '*.rs' -exec rustfmt --edition 2024 --check {} +
     '';
   };
   taplo = mkCheck {
@@ -212,7 +212,7 @@ in {
           fileset = unions [
             ../Cargo.toml
             ../Cargo.lock
-            ../crates
+            ../engine
             ../deny.toml
           ];
         };

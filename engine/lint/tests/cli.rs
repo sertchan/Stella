@@ -100,11 +100,11 @@ fn sources_reports_and_passes() {
 fn commit_messages_and_ranges_are_checked() {
     let s = Scratch::new("commits");
     git(&s.0, &["init", "-q", "-b", "main"]);
-    s.write("crates/dns/src/wire.rs", "pub fn a() {}\n");
+    s.write("engine/dns/src/wire.rs", "pub fn a() {}\n");
     git(&s.0, &["add", "."]);
     git(&s.0, &["commit", "-q", "-m", "dns/wire: add parser"]);
     let base = git(&s.0, &["rev-parse", "HEAD"]);
-    s.write("crates/cli/src/main.rs", "fn main() {}\n");
+    s.write("engine/cli/src/main.rs", "fn main() {}\n");
     git(&s.0, &["add", "."]);
     let good = s.write("msg-good", "cli: add entry point\n");
     let ok = lint(&s.0, &["commit-msg", "msg-good"], "", None);

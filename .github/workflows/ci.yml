@@ -161,9 +161,9 @@ jobs:
             echo "coverage per crate"
             printf '  %-10s %20s  %20s  %20s\n' crate lines functions regions
             jq -r '.data[0].files
-              | group_by(.filename | capture("crates/(?<c>[^/]+)/").c)
+              | group_by(.filename | capture("engine/(?<c>[^/]+)/").c)
               | map({
-                  c: (.[0].filename | capture("crates/(?<c>[^/]+)/").c),
+                  c: (.[0].filename | capture("engine/(?<c>[^/]+)/").c),
                   t: (map(.summary) | {
                     lc: (map(.lines.covered) | add), ln: (map(.lines.count) | add),
                     fc: (map(.functions.covered) | add), fn: (map(.functions.count) | add),
@@ -183,7 +183,7 @@ jobs:
               | map(select(.summary.lines.count > .summary.lines.covered))
               | sort_by(.summary.lines.covered - .summary.lines.count)
               | .[:12][]
-              | [(.filename | sub(".*/crates/"; "")), .summary.lines.covered, .summary.lines.count, .summary.lines.percent]
+              | [(.filename | sub(".*/engine/"; "")), .summary.lines.covered, .summary.lines.count, .summary.lines.percent]
               | @tsv' "$totals" |
             while IFS=$'\t' read -r f a b p; do printf '  %-36s %13s %5.1f%%\n' "$f" "$a/$b" "$p"; done
           } > "$report"

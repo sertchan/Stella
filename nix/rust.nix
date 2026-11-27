@@ -11,7 +11,7 @@
         ../Cargo.toml
         ../Cargo.lock
         ../clippy.toml
-        ../crates
+        ../engine
       ];
     };
     pname = "stella";

@@ -61,6 +61,7 @@ const FIXED: &[&str] = &[
     "readme",
     "license",
     "nix",
+    "lists",
 ];
 
 const WHY_FORMAT: &str = "Every subject is <scope>: <summary>. The scope names the part of the tree that changed, so git log, blame and review can be read per crate, module or file without opening the diff.";
@@ -160,6 +161,18 @@ pub fn valid_atom(atom: &str, crates: &[String]) -> bool {
     }
 }
 
+pub const ENGINE_DIR: &str = "engine";
+
+const ENGINE_DIRS: [&str; 2] = [ENGINE_DIR, "crates"];
+
+pub const LISTS_DIR: &str = "lists";
+
+fn in_engine(path: &str) -> Option<&str> {
+    ENGINE_DIRS
+        .iter()
+        .find_map(|d| path.strip_prefix(d)?.strip_prefix('/'))
+}
+
 pub fn covers(atom: &str, path: &str) -> bool {
     let file = path.rsplit('/').next().unwrap_or(path);
     match atom {
@@ -181,22 +194,36 @@ pub fn covers(atom: &str, path: &str) -> bool {
             !path.contains('/') && (path.starts_with("LICENSE") || path.starts_with("COPYING"))
         }
         "nix" => path.starts_with("nix/"),
+        "lists" => path
+            .strip_prefix(LISTS_DIR)
+            .is_some_and(|r| r.starts_with('/')),
         _ => match atom.split_once('/') {
             Some(("nix", name)) => path == format!("nix/{name}.nix"),
-            Some((krate, module)) => {
-                let src = format!("crates/{krate}/src/");
-                path.strip_prefix(&src).is_some_and(|rest| {
-                    rest.starts_with(&format!("{module}/"))
-                        || rest.split_once('.').is_some_and(|(stem, _)| stem == module)
-                }) || path == format!("crates/{krate}/tests/{module}.rs")
-            }
-            None => path.starts_with(&format!("crates/{atom}/")),
+            Some((krate, module)) => in_engine(path)
+                .and_then(|rest| rest.strip_prefix(krate)?.strip_prefix('/'))
+                .is_some_and(|inner| {
+                    inner.strip_prefix("src/").is_some_and(|rest| {
+                        rest.starts_with(&format!("{module}/"))
+                            || rest.split_once('.').is_some_and(|(stem, _)| stem == module)
+                    }) || inner == format!("tests/{module}.rs")
+                }),
+            None => in_engine(path)
+                .and_then(|rest| rest.strip_prefix(atom))
+                .is_some_and(|r| r.starts_with('/')),
         },
     }
 }
 
 fn narrowest(path: &str) -> String {
-    let fixed = ["flake", "cargo", "meta", "gitignore", "readme", "license"];
+    let fixed = [
+        "flake",
+        "cargo",
+        "meta",
+        "gitignore",
+        "readme",
+        "license",
+        "lists",
+    ];
     if let Some(a) = fixed.iter().find(|a| covers(a, path)) {
         return (*a).to_string();
     }
@@ -207,7 +234,7 @@ fn narrowest(path: &str) -> String {
     {
         return format!("nix/{name}");
     }
-    if let Some(rest) = path.strip_prefix("crates/") {
+    if let Some(rest) = in_engine(path) {
         let (krate, inner) = rest.split_once('/').unwrap_or((rest, ""));
         let module = inner
             .strip_prefix("src/")
@@ -479,7 +506,7 @@ fn git(args: &[&str]) -> Result<String> {
 }
 
 pub fn crates_in(dir: &std::path::Path) -> Vec<String> {
-    let mut v: Vec<String> = std::fs::read_dir(dir.join("crates"))
+    let mut v: Vec<String> = std::fs::read_dir(dir.join(ENGINE_DIR))
         .map(|d| {
             d.filter_map(std::result::Result::ok)
                 .filter(|e| e.path().is_dir())
@@ -621,16 +648,21 @@ mod tests {
         assert_eq!(expand("{a,}"), None);
         assert_eq!(expand("a}"), None);
         assert_eq!(expand("{a}b"), None);
+        assert!(covers("dns/wire", "engine/dns/src/wire.rs"));
+        assert!(covers("crawl/hooks", "engine/crawl/src/hooks.js"));
+        assert!(covers("dns/server", "engine/dns/tests/server.rs"));
+        assert!(covers("cli/feeds", "engine/cli/src/feeds/x.rs"));
+        assert!(!covers("dns/wire", "engine/dns/src/wired.rs"));
+        assert!(covers("dns", "engine/dns/Cargo.toml"));
         assert!(covers("dns/wire", "crates/dns/src/wire.rs"));
-        assert!(covers("crawl/hooks", "crates/crawl/src/hooks.js"));
-        assert!(covers("dns/server", "crates/dns/tests/server.rs"));
-        assert!(covers("cli/feeds", "crates/cli/src/feeds/x.rs"));
-        assert!(!covers("dns/wire", "crates/dns/src/wired.rs"));
-        assert!(covers("dns", "crates/dns/Cargo.toml"));
+        assert!(!covers("dns", "engine/dnsx/Cargo.toml"));
+        assert!(covers("lists", "lists/ads/domains.txt"));
+        assert!(!covers("lists", "listsx/a.txt"));
+        assert_eq!(suggest(&files(&["lists/ads/hosts.txt"])), "lists");
         assert!(covers("nix/checks", "nix/checks.nix"));
         assert!(covers("meta", ".github/workflows/check.yml"));
         assert!(covers("meta", "treefmt.toml"));
-        assert!(covers("gitignore", "crates/x/.gitignore"));
+        assert!(covers("gitignore", "engine/x/.gitignore"));
         assert!(covers("cargo", "deny.toml"));
         assert!(!covers("readme", "docs/README.md"));
         assert!(covers("license", "LICENSE"));
@@ -643,21 +675,21 @@ mod tests {
 
     #[test]
     fn suggests_the_narrowest_scope() {
-        assert_eq!(suggest(&files(&["crates/dns/src/wire.rs"])), "dns/wire");
+        assert_eq!(suggest(&files(&["engine/dns/src/wire.rs"])), "dns/wire");
         assert_eq!(
-            suggest(&files(&["crates/dns/src/wire.rs", "crates/dns/src/lib.rs"])),
+            suggest(&files(&["engine/dns/src/wire.rs", "engine/dns/src/lib.rs"])),
             "dns"
         );
         assert_eq!(
             suggest(&files(&[
-                "crates/dns/src/wire.rs",
-                "crates/cli/src/zone.rs"
+                "engine/dns/src/wire.rs",
+                "engine/cli/src/zone.rs"
             ])),
             "{cli,dns}"
         );
         assert_eq!(suggest(&files(&["nix/a.nix", "nix/b.nix"])), "nix/{a,b}");
         assert_eq!(
-            suggest(&files(&["crates/dns/Cargo.toml", "Cargo.lock"])),
+            suggest(&files(&["engine/dns/Cargo.toml", "Cargo.lock"])),
             "dns"
         );
         assert_eq!(suggest(&files(&["nix/a.nix", "flake.nix"])), "{flake,nix}");
@@ -672,17 +704,17 @@ mod tests {
             signature: 'N',
             parents: 2,
             message: "dns: add resolver".into(),
-            files: files(&["crates/dns/src/wire.rs", "crates/cli/src/zone.rs"]),
+            files: files(&["engine/dns/src/wire.rs", "engine/cli/src/zone.rs"]),
         };
         let found: Vec<&str> = check_commit(&c, &crates()).iter().map(|f| f.rule).collect();
         assert_eq!(found, ["merge-commit", "unsigned", "scope-files"]);
         let scope = check_commit(&c, &crates()).pop().expect("finding");
-        assert!(scope.found.contains("crates/cli/src/zone.rs"));
+        assert!(scope.found.contains("engine/cli/src/zone.rs"));
         assert!(scope.expected.ends_with("{cli,dns}"));
         let lock = Commit {
             signature: 'G',
             parents: 1,
-            files: files(&["crates/dns/Cargo.toml", "Cargo.lock"]),
+            files: files(&["engine/dns/Cargo.toml", "Cargo.lock"]),
             ..c
         };
         assert!(check_commit(&lock, &crates()).is_empty());

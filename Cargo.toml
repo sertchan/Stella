@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["engine/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,14 +9,14 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/sertchan/stella"
 
 [workspace.dependencies]
-stella-core = { path = "crates/core", version = "0.1.0" }
-stella-dns = { path = "crates/dns", version = "0.1.0" }
-stella-net = { path = "crates/net", version = "0.1.0" }
-stella-probe = { path = "crates/probe", version = "0.1.0" }
-stella-sources = { path = "crates/sources", version = "0.1.0" }
-stella-apk = { path = "crates/apk", version = "0.1.0" }
-stella-crawl = { path = "crates/crawl", version = "0.1.0" }
-stella-testkit = { path = "crates/testkit", version = "0.1.0" }
+stella-core = { path = "engine/core", version = "0.1.0" }
+stella-dns = { path = "engine/dns", version = "0.1.0" }
+stella-net = { path = "engine/net", version = "0.1.0" }
+stella-probe = { path = "engine/probe", version = "0.1.0" }
+stella-sources = { path = "engine/sources", version = "0.1.0" }
+stella-apk = { path = "engine/apk", version = "0.1.0" }
+stella-crawl = { path = "engine/crawl", version = "0.1.0" }
+stella-testkit = { path = "engine/testkit", version = "0.1.0" }
 aho-corasick = "1"
 anyhow = "1"
 base64 = "0.23"
