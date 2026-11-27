@@ -1,6 +1,7 @@
 {
   pkgs,
   self,
+  rust,
   stella,
 }: let
   comments = import ./comments.nix {inherit pkgs;};
@@ -18,16 +19,14 @@ in {
   dead-code = mkCheck "dead-code" [pkgs.deadnix] "deadnix --fail ${self}";
   comments = mkCheck "comments" [comments] "stella-comments ${self}";
   workflows = mkCheck "workflows" [pkgs.actionlint pkgs.shellcheck] "actionlint ${self}/.github/workflows/*.yml";
-  clippy = stella.overrideAttrs (prev: {
-    pname = "${prev.pname}-clippy";
-    nativeBuildInputs = prev.nativeBuildInputs ++ [pkgs.clippy];
-    buildPhase = ''
-      runHook preBuild
-      cargo clippy --all-targets --offline -- -D warnings
-      runHook postBuild
-    '';
-    doCheck = false;
-    installPhase = "touch $out";
-    dontFixup = true;
-  });
+  clippy = rust.craneLib.cargoClippy (rust.debug
+    // {
+      cargoArtifacts = rust.debugDeps;
+      cargoClippyExtraArgs = "--all-targets -- -D warnings";
+    });
+  tests = rust.craneLib.cargoNextest (rust.debug
+    // {
+      cargoArtifacts = rust.debugDeps;
+      cargoNextestExtraArgs = "--no-fail-fast";
+    });
 }

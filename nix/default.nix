@@ -1,7 +1,11 @@
 {inputs}: let
   system = "x86_64-linux";
   pkgs = inputs.nixpkgs.legacyPackages.${system};
-  stella = import ./package.nix {inherit pkgs;};
+  rust = import ./rust.nix {
+    inherit pkgs;
+    inherit (inputs) crane;
+  };
+  stella = import ./package.nix {inherit pkgs rust;};
 in {
   packages.${system} = {
     inherit stella;
@@ -13,7 +17,7 @@ in {
   };
   formatter.${system} = import ./fmt.nix {inherit pkgs;};
   checks.${system} = import ./checks.nix {
-    inherit pkgs stella;
+    inherit pkgs rust stella;
     inherit (inputs) self;
   };
 }
