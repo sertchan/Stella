@@ -1797,6 +1797,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "flate2",
  "reqwest",
  "rusqlite",
  "rustc-hash",
@@ -1808,6 +1809,7 @@ dependencies = [
  "stella-probe",
  "stella-sources",
  "stella-testkit",
+ "tar",
  "tokio",
  "zip",
 ]

@@ -24,7 +24,9 @@ stella-sources.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+flate2.workspace = true
 stella-testkit.workspace = true
+tar.workspace = true
 zip.workspace = true
 
 [lints]

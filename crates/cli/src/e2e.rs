@@ -646,3 +646,196 @@ fn every_command_definition_is_valid() {
     use clap::CommandFactory;
     Cli::command().debug_assert();
 }
+
+fn tgz_with(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    let mut tar = tar::Builder::new(gz);
+    for (name, body) in entries {
+        let mut h = tar::Header::new_gnu();
+        h.set_size(body.len() as u64);
+        h.set_mode(0o644);
+        h.set_cksum();
+        tar.append_data(&mut h, name, *body).expect("tar entry");
+    }
+    tar.into_inner()
+        .expect("tar finish")
+        .finish()
+        .expect("gzip finish")
+}
+
+const MIRRORED: &[&str] = &[
+    "raw.githubusercontent.com",
+    "publicsuffix.org",
+    "api.github.com",
+    "adguardteam.github.io",
+    "filters.adtidy.org",
+    "easylist.to",
+    "api.subdomain.center",
+    "vendor-list.consensu.org",
+    "disclosures.vendor.test",
+    "registry.npmjs.org",
+    "www.whoisds.com",
+    "codeload.github.com",
+    "tranco-list.eu",
+    "addons.mozilla.org",
+    "shop.test",
+    "www.shop.test",
+    "adsys.test",
+    "www.googletagmanager.com",
+];
+
+fn mirror() -> Site {
+    let list = "listed.test\nx.tracker.listed.test\n";
+    let gvl = r#"{"vendors":{"1":{"name":"Vendor","deviceStorageDisclosureUrl":"https://disclosures.vendor.test/d.json"}}}"#;
+    let disclosure = r#"{"disclosures":[{"identifier":"uid","domains":["*.sync.vendor.test"]}],"domains":[{"domain":".pixel.vendor.test","use":"x"}]}"#;
+    let entities = r#"[{"name":"Ad Co","category":"ad","domains":["*.adco.test","px.adco.test"]}]"#;
+    let nrd_path = stella_sources::nrd::url("2026-11-20")
+        .split_once("whoisds.com")
+        .map(|(_, p)| p.to_string())
+        .expect("nrd path");
+    Site::new()
+        .route(
+            "/list/public_suffix_list.dat",
+            Reply::ok("// ===BEGIN ICANN DOMAINS===\ntest\nco.test\n"),
+        )
+        .route("/repos/hagezi/dns-blocklists/issues", Reply::ok("[]"))
+        .route(
+            "/",
+            Reply::ok("[\"a.shop.test\",\"b.shop.test\",\"x.other.test\"]")
+                .header("Content-Type", "application/json"),
+        )
+        .route("/v3/vendor-list.json", Reply::ok(gvl))
+        .route("/d.json", Reply::ok(disclosure))
+        .route(
+            "/third-party-web/latest",
+            Reply::ok(r#"{"dist":{"tarball":"https://registry.npmjs.org/third-party-web/-/third-party-web-1.0.0.tgz"}}"#),
+        )
+        .route(
+            "/third-party-web/-/third-party-web-1.0.0.tgz",
+            Reply::new(200).body(tgz_with(&[("package/dist/entities.json", entities.as_bytes())])),
+        )
+        .route(
+            "/vendor-sdk/latest",
+            Reply::ok(r#"{"dist":{"tarball":"https://registry.npmjs.org/vendor-sdk/-/vendor-sdk-1.0.0.tgz"}}"#),
+        )
+        .route(
+            "/vendor-sdk/-/vendor-sdk-1.0.0.tgz",
+            Reply::new(200).body(tgz_with(&[(
+                "package/index.js",
+                b"export const api = \"https://events.sdk-vendor.test/v2/track\";",
+            )])),
+        )
+        .route(
+            &nrd_path,
+            Reply::new(200).body(apk_with(&[(
+                "domain-names.txt",
+                b"fresh-ads.test\nnew-trk.test\n",
+            )])),
+        )
+        .route(
+            "/prebid/Prebid.js/tar.gz/refs/heads/master",
+            Reply::new(200).body(tgz_with(&[(
+                "Prebid.js-master/modules/fooBidAdapter.js",
+                b"const URL = 'https://hb.foo-ads.test/bid';",
+            )])),
+        )
+        .route(
+            "/prebid/prebid-server/tar.gz/refs/heads/master",
+            Reply::new(200).body(tgz_with(&[(
+                "prebid-server-master/static/bidder-info/bar.yaml",
+                b"endpoint: \"https://rtb.bar-ads.test/openrtb\"",
+            )])),
+        )
+        .route(
+            "/top-1m.csv.zip",
+            Reply::new(200).body(apk_with(&[(
+                "top-1m.csv",
+                b"1,shop.test\n2,news.test\n3,blog.test\n",
+            )])),
+        )
+        .route(
+            "/api/v5/addons/addon/tracker-ext/",
+            Reply::ok(r#"{"current_version":{"file":{"url":"https://addons.mozilla.org/firefox/downloads/file/1/x.xpi"}}}"#),
+        )
+        .route(
+            "/firefox/downloads/file/1/x.xpi",
+            Reply::new(200).body(apk_with(&[
+                (
+                    "manifest.json",
+                    br#"{"name":"Tracker","permissions":["https://api.ext-tracker.test/"]}"#,
+                ),
+                ("bg.js", b"fetch('https://collect.ext-tracker.test/e');"),
+            ])),
+        )
+        .route(
+            "/ads.txt",
+            Reply::ok("adsys.test, pub-1, DIRECT, f08c47fec0942fa0\n"),
+        )
+        .route(
+            "/sellers.json",
+            Reply::ok(r#"{"sellers":[{"seller_id":"1","domain":"seller.shop.test","seller_type":"PUBLISHER"}]}"#),
+        )
+        .route(
+            "/gtm.js",
+            Reply::ok("var data = {\"vtp_serverContainerUrl\":\"https://sgtm.shop.test\",\"x\":\"https://collect.tags.test/g\"};"),
+        )
+        .fallback(Reply::ok(list))
+}
+
+#[test]
+fn remote_sources_run_against_a_local_mirror() {
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    let srv = rt.block_on(Http::plain(mirror())).expect("mirror");
+    let base = format!("http://{}", srv.addr);
+    let st = State::new("mirror");
+    let mut prefix: Vec<String> = Vec::new();
+    for host in MIRRORED {
+        prefix.push("--endpoint".into());
+        prefix.push(format!("{host}={base}"));
+    }
+    let run = |args: &[&str]| {
+        let mut all: Vec<&str> = prefix.iter().map(String::as_str).collect();
+        all.extend_from_slice(args);
+        st.stella(&all);
+    };
+    run(&["known", "sync"]);
+    let pro = std::fs::read_to_string(st.dir.join("known/pro-onlydomains.txt")).expect("pro list");
+    assert!(pro.contains("x.tracker.listed.test"));
+    run(&["audit", "--list-age-hours", "0"]);
+    let zones = st.file("zones.txt", &["shop.test"]);
+    run(&["--input", &zones, "source", "passive"]);
+    assert!(st.count("SELECT count(*) FROM origin WHERE host = 'a.shop.test'") >= 1);
+    run(&["source", "cmp"]);
+    run(&["source", "http-archive"]);
+    run(&["source", "nrd", "--date", "2026-11-20"]);
+    run(&["source", "prebid"]);
+    run(&["source", "toplist", "tranco", "--top", "2"]);
+    let sdks = st.file("sdks.txt", &["npm:vendor-sdk"]);
+    run(&["--input", &sdks, "source", "sdk"]);
+    let exts = st.file("exts.txt", &["firefox:tracker-ext"]);
+    run(&["--input", &exts, "source", "extension"]);
+    let sites = st.file("sites.txt", &["shop.test"]);
+    run(&["--input", &sites, "source", "adtech"]);
+    run(&["--input", &sites, "source", "site"]);
+    st.seed(vec![Row::Tag {
+        site: s("shop.test"),
+        id: s("GTM-ABC123"),
+    }]);
+    run(&["source", "container"]);
+    let seen: Vec<String> = srv.seen().into_iter().map(|s| s.path).collect();
+    for path in [
+        "/list/public_suffix_list.dat",
+        "/v3/vendor-list.json",
+        "/d.json",
+        "/third-party-web/-/third-party-web-1.0.0.tgz",
+        "/top-1m.csv.zip",
+        "/firefox/downloads/file/1/x.xpi",
+        "/ads.txt",
+    ] {
+        assert!(
+            seen.iter().any(|p| p.starts_with(path)),
+            "{path} not requested: {seen:?}"
+        );
+    }
+    drop(rt);
+}
