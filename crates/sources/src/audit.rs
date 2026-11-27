@@ -258,11 +258,12 @@ pub async fn github_get(
         if t > 0 {
             tokio::time::sleep(Duration::from_secs(3 * t)).await;
         }
+        let to = stella_net::client::target(url);
         let mut req = client
-            .get(url)
+            .get(&to)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28");
-        if let Some(tok) = token {
+        if let Some(tok) = token.filter(|_| to == url) {
             req = req.bearer_auth(tok);
         }
         match req.send().await {
