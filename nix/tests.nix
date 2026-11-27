@@ -10,6 +10,7 @@ in
     // {
       nativeBuildInputs = rust.measured.nativeBuildInputs ++ [pkgs.git];
       STELLA_CHROMIUM = chromium;
+      SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
       cargoArtifacts = rust.measuredDeps;
       cargoNextestExtraArgs = "--no-fail-fast --profile ci";
       doInstallCargoArtifacts = false;
