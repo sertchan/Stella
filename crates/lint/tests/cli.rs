@@ -158,7 +158,6 @@ fn outdated_reads_every_tool() {
         std::fs::set_permissions(tools.join(t), perm).expect("chmod");
     }
     s.write("Cargo.lock", "version = 4\n");
-    s.write("fuzz/Cargo.lock", "version = 4\n");
     s.write(
         "flake.lock",
         "{\"nodes\":{\"nixpkgs\":{\"locked\":{\"lastModified\":0}},\"root\":{}}}\n",
@@ -172,7 +171,6 @@ fn outdated_reads_every_tool() {
     assert_eq!(out.status.code(), Some(1), "{text}");
     for rule in [
         "error[outdated-lockfile] Cargo.lock zip",
-        "error[outdated-lockfile] fuzz/Cargo.lock zip",
         "error[outdated-dependency] Cargo.toml stella -> clap",
         "error[outdated-flake-input] flake.lock nixpkgs",
         "error[outdated-action] .github/workflows/ci.yml actions/checkout",

@@ -260,18 +260,10 @@ pub fn deprecation(notes: &str) -> Option<String> {
 }
 
 pub fn all(dir: &Path, grace_days: i64, with_actions: bool) -> Result<Vec<Finding>> {
-    let fuzz = dir.join("fuzz");
     std::thread::scope(|s| {
         let jobs = [
             s.spawn(|| lock(dir, "Cargo.lock")),
             s.spawn(|| majors(dir, "Cargo.toml")),
-            s.spawn(|| {
-                if fuzz.join("Cargo.lock").is_file() {
-                    lock(&fuzz, "fuzz/Cargo.lock")
-                } else {
-                    Ok(Vec::new())
-                }
-            }),
             s.spawn(|| flake(dir, grace_days)),
             s.spawn(|| {
                 if with_actions {
