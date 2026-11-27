@@ -37,4 +37,9 @@ in {
   releaseDeps = craneLib.buildDepsOnly common;
   debugDeps = craneLib.buildDepsOnly debug;
   measuredDeps = craneLib.buildDepsOnly measured;
+  lintDeps = craneLib.buildDepsOnly (debug
+    // {
+      pname = "stella-lint";
+      cargoExtraArgs = "--locked --package stella-lint";
+    });
 }

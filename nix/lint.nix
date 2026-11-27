@@ -13,7 +13,7 @@ in
   rust.craneLib.buildPackage (rust.debug
     // {
       pname = "stella-lint";
-      cargoArtifacts = rust.debugDeps;
+      cargoArtifacts = rust.lintDeps;
       cargoExtraArgs = "--locked --package stella-lint";
       doCheck = false;
       nativeBuildInputs = rust.common.nativeBuildInputs ++ [pkgs.makeWrapper];

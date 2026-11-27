@@ -6,6 +6,7 @@ pkgs.writeShellApplication {
   name = "stella-pre-push";
   runtimeInputs = [
     pkgs.git
+    pkgs.coreutils
     lint
   ];
   text = ''
@@ -13,24 +14,65 @@ pkgs.writeShellApplication {
     cd "$root"
     remote=''${1:-origin}
     refs=$(cat)
+    logs=$(mktemp -d)
+    trap 'rm -rf "$logs"' EXIT
+    zero=0000000000000000000000000000000000000000
 
-    fail() {
-      echo
-      echo "pre-push: the push was refused. $1"
-      echo "Nothing left this machine. Fix the reports above and push again."
-      exit 1
+    names=()
+    pids=()
+    start() {
+      local name=$1
+      shift
+      names+=("$name")
+      (
+        begin=$(date +%s)
+        if "$@" > "$logs/$name.log" 2>&1; then status=0; else status=$?; fi
+        echo "$status $(( $(date +%s) - begin ))" > "$logs/$name.status"
+      ) &
+      pids+=($!)
     }
 
-    printf '%s\n' "$refs" | stella-lint push "$remote" || fail "A commit breaks the commit rules."
-    stella-lint fresh || fail "A dependency, flake input or CI action is not on its newest stable release."
+    lint_refs() {
+      printf '%s\n' "$refs" | stella-lint pre-push "$remote"
+    }
 
-    zero=0000000000000000000000000000000000000000
+    start commitlint lint_refs
+    start outdated stella-lint outdated
     while read -r _ local _ _; do
-      [ -z "$local" ] || [ "$local" = "$zero" ] && continue
+      if [ -z "$local" ] || [ "$local" = "$zero" ]; then
+        continue
+      fi
       flake="git+file://$root?rev=$local"
-      echo "pre-push: checking commit $local exactly as it will be pushed"
-      nix flake check "$flake" || fail "nix flake check fails on commit $local."
-      nix build --no-link "$flake" || fail "nix build fails on commit $local."
+      start "flake-check-''${local:0:10}" nix flake check "$flake"
+      start "build-''${local:0:10}" nix build --no-link "$flake"
     done <<< "$refs"
+
+    echo "pre-push: running ''${names[*]} in parallel"
+    for pid in "''${pids[@]}"; do
+      wait "$pid" || true
+    done
+
+    failed=()
+    for name in "''${names[@]}"; do
+      read -r status secs < "$logs/$name.status"
+      if [ "$status" -eq 0 ]; then
+        printf '  ok    %-24s %4ss\n' "$name" "$secs"
+      else
+        printf '  FAIL  %-24s %4ss\n' "$name" "$secs"
+        failed+=("$name")
+      fi
+    done
+
+    if [ "''${#failed[@]}" -gt 0 ]; then
+      for name in "''${failed[@]}"; do
+        echo
+        echo "---- $name ----"
+        cat "$logs/$name.log"
+      done
+      echo
+      echo "pre-push: the push was refused because ''${failed[*]} failed."
+      echo "Nothing left this machine. The reports above explain each rule and how to fix it."
+      exit 1
+    fi
   '';
 }

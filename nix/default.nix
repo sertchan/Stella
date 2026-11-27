@@ -8,7 +8,7 @@
   stella = import ./package.nix {inherit pkgs rust;};
   lint = import ./lint.nix {inherit pkgs rust;};
   checks = import ./checks.nix {
-    inherit pkgs rust stella lint;
+    inherit pkgs rust lint;
     inherit (inputs) self;
     tests = import ./tests.nix {inherit rust;};
   };
@@ -17,7 +17,7 @@ in {
     inherit stella;
     default = stella;
     inherit lint;
-    coverage = checks.tests;
+    coverage = checks.test;
   };
   devShells.${system} = {
     default = import ./shell.nix {inherit pkgs lint;};
@@ -25,4 +25,7 @@ in {
   };
   formatter.${system} = import ./fmt.nix {inherit pkgs;};
   checks.${system} = checks;
+  legacyPackages.${system}.deps = {
+    inherit (rust) releaseDeps debugDeps measuredDeps lintDeps;
+  };
 }

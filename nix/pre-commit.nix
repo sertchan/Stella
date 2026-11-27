@@ -33,7 +33,7 @@ pkgs.writeShellApplication {
       taplo format --check "''${toml[@]}" || fail=1
     fi
 
-    stella-lint source . || fail=1
+    stella-lint sources . || fail=1
 
     if [ "$fail" -ne 0 ]; then
       echo

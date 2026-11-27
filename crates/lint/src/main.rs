@@ -1,5 +1,5 @@
 mod commits;
-mod fresh;
+mod outdated;
 mod report;
 mod source;
 
@@ -24,33 +24,37 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     #[command(
-        about = "Check every text file under a directory for comments, dashes, help text, markers, whitespace and size"
+        about = "Check every text file for comments, lint attributes, dashes, help text, work markers, whitespace and size"
     )]
-    Source {
+    Sources {
         #[arg(default_value = ".", help = "Directory to check")]
         dir: PathBuf,
     },
-    #[command(about = "Check one commit message file, as the commit-msg hook does")]
-    Message {
+    #[command(
+        name = "commit-msg",
+        about = "Check a commit message file and the staged files, as the commit-msg hook does"
+    )]
+    CommitMsg {
         #[arg(help = "File with the commit message")]
         file: PathBuf,
     },
     #[command(about = "Check every commit in a git revision range, as CI does")]
-    Range {
+    Commits {
         #[arg(help = "Revision range such as origin/main..HEAD")]
         range: String,
     },
     #[command(
-        about = "Check the commits of a push, reading the ref lines git gives the pre-push hook"
+        name = "pre-push",
+        about = "Check the commits of a push from the ref lines git gives the pre-push hook"
     )]
-    Push {
+    PrePush {
         #[arg(default_value = "origin", help = "Remote that receives the push")]
         remote: String,
     },
     #[command(
-        about = "Check that the lock files, direct dependencies, flake inputs and CI actions are on their newest stable release"
+        about = "Check that lock files, direct dependencies, flake inputs and CI actions are on their newest stable release"
     )]
-    Fresh {
+    Outdated {
         #[arg(default_value = ".", help = "Repository root")]
         dir: PathBuf,
         #[arg(
@@ -65,17 +69,17 @@ enum Cmd {
 }
 
 fn commits_outcome(ranges: &[String]) -> Result<Outcome> {
+    let crates = commits::crates_in(&std::env::current_dir()?);
     let mut findings = Vec::new();
     let mut count = 0usize;
     for range in ranges {
-        let crates = commits::crates_in(&std::env::current_dir()?);
         for c in commits::load(range)? {
             count += 1;
             findings.extend(commits::check_commit(&c, &crates));
         }
     }
     Ok(Outcome {
-        tool: "stella-lint commits",
+        tool: "commitlint",
         checked: format!("{count} commit(s) in {}", ranges.join(" and ")),
         findings,
     })
@@ -83,15 +87,15 @@ fn commits_outcome(ranges: &[String]) -> Result<Outcome> {
 
 fn run(cli: Cli) -> Result<bool> {
     let outcome = match cli.cmd {
-        Cmd::Source { dir } => {
+        Cmd::Sources { dir } => {
             let (n, findings) = source::check_tree(&dir)?;
             Outcome {
-                tool: "stella-lint source",
+                tool: "source-lint",
                 checked: format!("{n} files under {}", dir.display()),
                 findings,
             }
         }
-        Cmd::Message { file } => {
+        Cmd::CommitMsg { file } => {
             let text = std::fs::read_to_string(&file)
                 .with_context(|| format!("read {}", file.display()))?;
             let crates = commits::crates_in(&std::env::current_dir()?);
@@ -109,38 +113,26 @@ fn run(cli: Cli) -> Result<bool> {
                 &crates,
             ));
             Outcome {
-                tool: "stella-lint message",
+                tool: "commitlint",
                 checked: format!("the new commit message and {} staged file(s)", files.len()),
                 findings,
             }
         }
-        Cmd::Range { range } => commits_outcome(&[range])?,
-        Cmd::Push { remote } => {
+        Cmd::Commits { range } => commits_outcome(&[range])?,
+        Cmd::PrePush { remote } => {
             let mut stdin = String::new();
             std::io::stdin().read_to_string(&mut stdin)?;
             commits_outcome(&commits::push_ranges(&stdin, &remote))?
         }
-        Cmd::Fresh {
+        Cmd::Outdated {
             dir,
             grace_days,
             no_actions,
-        } => {
-            let mut findings = fresh::lock(&dir, "Cargo.lock")?;
-            findings.extend(fresh::majors(&dir, "Cargo.toml")?);
-            let fuzz = dir.join("fuzz");
-            if fuzz.join("Cargo.lock").is_file() {
-                findings.extend(fresh::lock(&fuzz, "fuzz/Cargo.lock")?);
-            }
-            findings.extend(fresh::flake(&dir, grace_days)?);
-            if !no_actions {
-                findings.extend(fresh::actions(&dir)?);
-            }
-            Outcome {
-                tool: "stella-lint fresh",
-                checked: "lock files, direct dependencies, flake inputs and CI actions".into(),
-                findings,
-            }
-        }
+        } => Outcome {
+            tool: "outdated",
+            checked: "lock files, direct dependencies, flake inputs and CI actions".into(),
+            findings: outdated::all(&dir, grace_days, !no_actions)?,
+        },
     };
     Ok(outcome.emit())
 }

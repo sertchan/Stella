@@ -125,13 +125,13 @@ mod tests {
             "error[comment] a.rs:3:5\n  found    note\n  why      code explains itself\n  fix      delete it\n"
         );
         let ok = Outcome {
-            tool: "stella-lint source",
+            tool: "source-lint",
             checked: "12 files".into(),
             findings: Vec::new(),
         };
-        assert_eq!(ok.text(), "stella-lint source: ok, 12 files\n");
+        assert_eq!(ok.text(), "source-lint: ok, 12 files\n");
         let bad = Outcome {
-            tool: "stella-lint source",
+            tool: "source-lint",
             checked: "12 files".into(),
             findings: vec![f],
         };

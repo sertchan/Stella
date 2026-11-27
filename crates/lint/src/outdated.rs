@@ -51,7 +51,7 @@ pub fn lock(dir: &Path, label: &str) -> Result<Vec<Finding>> {
     Ok(parse_lock_updates(&err)
         .into_iter()
         .map(|(name, from, to)| {
-            Finding::new("stale-lock", format!("{label} {name}"), WHY_LOCK)
+            Finding::new("outdated-lockfile", format!("{label} {name}"), WHY_LOCK)
                 .found(from)
                 .expected(to)
                 .fix(format!(
@@ -98,7 +98,7 @@ pub fn majors(dir: &Path, label: &str) -> Result<Vec<Finding>> {
     Ok(parse_outdated(&out)
         .into_iter()
         .map(|(krate, name, project, latest)| {
-            Finding::new("stale-dependency", format!("{label} {krate} -> {name}"), WHY_MAJOR)
+            Finding::new("outdated-dependency", format!("{label} {krate} -> {name}"), WHY_MAJOR)
                 .found(project)
                 .expected(latest.clone())
                 .fix(format!(
@@ -147,7 +147,7 @@ pub fn flake(dir: &Path, grace_days: i64) -> Result<Vec<Finding>> {
     Ok(flake_lag(&old, &new, grace_days)
         .into_iter()
         .map(|(input, lag)| {
-            Finding::new("stale-flake-input", format!("flake.lock {input}"), WHY_FLAKE)
+            Finding::new("outdated-flake-input", format!("flake.lock {input}"), WHY_FLAKE)
                 .found(format!("{lag} days behind its branch"))
                 .expected(format!("at most {grace_days} days behind"))
                 .fix(format!(
@@ -165,8 +165,9 @@ pub fn parse_uses(text: &str) -> Vec<(String, String)> {
                 .trim_start_matches("- ")
                 .strip_prefix("uses:")?
                 .trim();
-            let (repo, rev) = rest.split_once('@')?;
-            (!repo.starts_with('.')).then(|| (repo.to_string(), rev.to_string()))
+            let (path, rev) = rest.split_once('@')?;
+            let repo: Vec<&str> = path.splitn(3, '/').take(2).collect();
+            (!path.starts_with('.') && repo.len() == 2).then(|| (repo.join("/"), rev.to_string()))
         })
         .collect()
 }
@@ -205,13 +206,30 @@ pub fn actions(dir: &Path) -> Result<Vec<Finding>> {
             pins.entry((repo, rev)).or_insert(rel.clone());
         }
     }
+    let latest: Vec<Result<(String, String)>> = std::thread::scope(|s| {
+        let jobs: Vec<_> = pins
+            .keys()
+            .map(|(repo, _)| {
+                s.spawn(move || {
+                    let tag = gh(dir, &format!("repos/{repo}/releases/latest"), ".tag_name")?;
+                    let sha = gh(dir, &format!("repos/{repo}/commits/{tag}"), ".sha")?;
+                    Ok((tag, sha))
+                })
+            })
+            .collect();
+        jobs.into_iter()
+            .map(|j| {
+                j.join()
+                    .unwrap_or_else(|_| Err(anyhow::anyhow!("a GitHub API lookup panicked")))
+            })
+            .collect()
+    });
     let mut out = Vec::new();
-    for ((repo, rev), file) in pins {
-        let tag = gh(dir, &format!("repos/{repo}/releases/latest"), ".tag_name")?;
-        let sha = gh(dir, &format!("repos/{repo}/commits/{tag}"), ".sha")?;
+    for (((repo, rev), file), got) in pins.into_iter().zip(latest) {
+        let (tag, sha) = got?;
         if rev != sha {
             out.push(
-                Finding::new("stale-action", format!("{file} {repo}"), WHY_ACTION)
+                Finding::new("outdated-action", format!("{file} {repo}"), WHY_ACTION)
                     .found(rev.clone())
                     .expected(format!("{sha} ({tag})"))
                     .fix(format!("Replace {repo}@{rev} with {repo}@{sha}.")),
@@ -219,6 +237,39 @@ pub fn actions(dir: &Path) -> Result<Vec<Finding>> {
         }
     }
     Ok(out)
+}
+
+pub fn all(dir: &Path, grace_days: i64, with_actions: bool) -> Result<Vec<Finding>> {
+    let fuzz = dir.join("fuzz");
+    std::thread::scope(|s| {
+        let jobs = [
+            s.spawn(|| lock(dir, "Cargo.lock")),
+            s.spawn(|| majors(dir, "Cargo.toml")),
+            s.spawn(|| {
+                if fuzz.join("Cargo.lock").is_file() {
+                    lock(&fuzz, "fuzz/Cargo.lock")
+                } else {
+                    Ok(Vec::new())
+                }
+            }),
+            s.spawn(|| flake(dir, grace_days)),
+            s.spawn(|| {
+                if with_actions {
+                    actions(dir)
+                } else {
+                    Ok(Vec::new())
+                }
+            }),
+        ];
+        let mut out = Vec::new();
+        for j in jobs {
+            match j.join() {
+                Ok(r) => out.extend(r?),
+                Err(_) => bail!("an outdated check panicked"),
+            }
+        }
+        Ok(out)
+    })
 }
 
 #[cfg(test)]
@@ -274,11 +325,12 @@ mod tests {
 
     #[test]
     fn reads_pinned_actions() {
-        let yml = "steps:\n  - uses: actions/checkout@abc\n      - uses: ./.github/actions/nix\n    uses: cachix/install-nix-action@def\n  - run: echo uses:x@y\n";
+        let yml = "steps:\n  - uses: actions/checkout@abc\n      - uses: actions/cache/restore@ghi\n      - uses: ./.github/actions/nix\n    uses: cachix/install-nix-action@def\n  - run: echo uses:x@y\n";
         assert_eq!(
             parse_uses(yml),
             [
                 ("actions/checkout".to_string(), "abc".to_string()),
+                ("actions/cache".to_string(), "ghi".to_string()),
                 ("cachix/install-nix-action".to_string(), "def".to_string())
             ]
         );
