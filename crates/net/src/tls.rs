@@ -2,7 +2,7 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -128,15 +128,18 @@ fn tls_fail(e: &std::io::Error) -> Fail {
     }
 }
 
+pub const TLS_PORT: u16 = 443;
+
 pub async fn connect(
     connector: &TlsConnector,
     host: &str,
-    ip: IpAddr,
+    addr: SocketAddr,
     tcp_timeout: Duration,
     tls_timeout: Duration,
 ) -> Result<TlsStream<TcpStream>, Fail> {
-    let name = ServerName::try_from(host.to_string()).unwrap_or(ServerName::IpAddress(ip.into()));
-    let tcp = tokio::time::timeout(tcp_timeout, TcpStream::connect(SocketAddr::new(ip, 443)))
+    let name =
+        ServerName::try_from(host.to_string()).unwrap_or(ServerName::IpAddress(addr.ip().into()));
+    let tcp = tokio::time::timeout(tcp_timeout, TcpStream::connect(addr))
         .await
         .map_err(|_| Fail::TcpTimeout)?
         .map_err(|e| tcp_fail(&e))?;

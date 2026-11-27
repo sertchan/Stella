@@ -69,6 +69,8 @@ pub struct Prober {
     pub tls_timeout: Duration,
     pub budget: Duration,
     pub cap: usize,
+    pub tls_port: u16,
+    pub plain_port: u16,
 }
 
 const DPI_PAUSE: Duration = Duration::from_millis(600);
@@ -114,8 +116,14 @@ impl<'a> Session<'a> {
             let tcp = self.prober.tcp_timeout.min(left);
             let handshake = self.prober.tls_timeout.min(left);
             let hs = self.prober.limiter.handshake().await;
-            let connected =
-                tls::connect(&self.prober.connector, self.host, self.ip, tcp, handshake).await;
+            let connected = tls::connect(
+                &self.prober.connector,
+                self.host,
+                std::net::SocketAddr::new(self.ip, self.prober.tls_port),
+                tcp,
+                handshake,
+            )
+            .await;
             drop(hs);
             match connected {
                 Ok(stream) => {
@@ -291,6 +299,8 @@ impl Prober {
             tls_timeout: Duration::from_secs(4),
             budget: Duration::from_secs(20),
             cap: 64 * 1024,
+            tls_port: tls::TLS_PORT,
+            plain_port: PLAIN_PORT,
         }
     }
 
@@ -401,7 +411,7 @@ impl Prober {
             let hs = self.limiter.handshake().await;
             let tcp = tokio::time::timeout(
                 self.tcp_timeout.min(left),
-                TcpStream::connect((ip, PLAIN_PORT)),
+                TcpStream::connect((ip, self.plain_port)),
             )
             .await;
             drop(hs);

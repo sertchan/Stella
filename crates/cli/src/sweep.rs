@@ -113,9 +113,15 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             set.spawn(async move {
                 let _slot = limiter.slot().await?;
                 let _hs = limiter.handshake().await?;
-                let s = tls::connect(&connector, &ip.to_string(), ip, wait, wait)
-                    .await
-                    .ok()?;
+                let s = tls::connect(
+                    &connector,
+                    &ip.to_string(),
+                    std::net::SocketAddr::new(ip, tls::TLS_PORT),
+                    wait,
+                    wait,
+                )
+                .await
+                .ok()?;
                 Some((ip, tls::sans(&s)))
             });
         }
