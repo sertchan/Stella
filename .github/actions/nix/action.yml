@@ -49,3 +49,28 @@ runs:
         DIR: ${{ steps.plan.outputs.dir }}
         STORE_PATH: ${{ steps.plan.outputs.path }}
       run: nix copy --no-check-sigs --from "file://$DIR" "$STORE_PATH"
+    - name: job context
+      shell: bash
+      env:
+        DEPS: ${{ inputs.deps }}
+        HIT: ${{ steps.restore.outputs.cache-hit }}
+        KEY: ${{ steps.plan.outputs.key }}
+        EVENT: ${{ github.event_name }}
+        REF: ${{ github.ref_name }}
+        RUN: ${{ github.run_number }}
+        ATTEMPT: ${{ github.run_attempt }}
+        ACTOR: ${{ github.actor }}
+      run: |
+        row() { printf '%-9s%s\n' "$1" "$2"; }
+        row commit "$(git log -1 --format='%h  %s' 2> /dev/null || echo unknown)"
+        row author "$(git log -1 --format='%an, %ad' --date=iso 2> /dev/null || echo unknown)"
+        row event "$EVENT on $REF by $ACTOR, run $RUN attempt $ATTEMPT"
+        row runner "${ImageOS:-unknown} image ${ImageVersion:-unknown}, $(nproc) cpus, $(free -g | awk '/^Mem/ { print $2 }') GiB memory"
+        row nix "$(nix --version)"
+        if [ -z "$DEPS" ]; then
+          row deps "none, this job needs no compiled dependencies"
+        elif [ "$HIT" = true ]; then
+          row deps "$DEPS restored from the cache as $KEY"
+        else
+          row deps "$DEPS not in the cache, built in this job and saved as $KEY"
+        fi
