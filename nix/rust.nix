@@ -21,8 +21,20 @@
     buildInputs = [pkgs.sqlite];
   };
   debug = common // {CARGO_PROFILE = "dev";};
+  inherit (pkgs.rustc) llvmPackages;
+  measured =
+    debug
+    // {
+      nativeBuildInputs = common.nativeBuildInputs ++ [pkgs.cargo-llvm-cov];
+      LLVM_COV = "${llvmPackages.llvm}/bin/llvm-cov";
+      LLVM_PROFDATA = "${llvmPackages.llvm}/bin/llvm-profdata";
+      preBuild = ''
+        eval "$(cargo llvm-cov show-env --sh 2>/dev/null)"
+      '';
+    };
 in {
-  inherit craneLib common debug;
+  inherit craneLib common debug measured;
   releaseDeps = craneLib.buildDepsOnly common;
   debugDeps = craneLib.buildDepsOnly debug;
+  measuredDeps = craneLib.buildDepsOnly measured;
 }

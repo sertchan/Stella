@@ -4,6 +4,7 @@
   rust,
   stella,
   lint,
+  tests,
 }: let
   inherit (pkgs.lib.fileset) toSource unions;
   report = name: why: fix: ''
@@ -114,17 +115,5 @@ in {
         ];
       };
     }));
-  tests = explain "tests" "Every test passes on every commit. A red test is a bug in the code or in the test, never noise." "Run cargo nextest run or cargo test in nix develop and fix the failing test named above." (rust.craneLib.cargoNextest (rust.debug
-    // {
-      cargoArtifacts = rust.debugDeps;
-      cargoNextestExtraArgs = "--no-fail-fast --profile ci";
-      doInstallCargoArtifacts = false;
-      preCheck = ''
-        mkdir -p .config
-        printf '[profile.ci.junit]\npath = "junit.xml"\n' > .config/nextest.toml
-      '';
-      postInstall = ''
-        cp target/nextest/ci/junit.xml $out/junit.xml
-      '';
-    }));
+  tests = explain "tests" "Every test passes on every commit. A red test is a bug in the code or in the test, never noise." "Run cargo nextest run or cargo test in nix develop and fix the failing test named above." tests;
 }

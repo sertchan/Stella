@@ -7,20 +7,22 @@
   };
   stella = import ./package.nix {inherit pkgs rust;};
   lint = import ./lint.nix {inherit pkgs rust;};
+  checks = import ./checks.nix {
+    inherit pkgs rust stella lint;
+    inherit (inputs) self;
+    tests = import ./tests.nix {inherit rust;};
+  };
 in {
   packages.${system} = {
     inherit stella;
     default = stella;
     inherit lint;
-    coverage = import ./coverage.nix {inherit pkgs rust;};
+    coverage = checks.tests;
   };
   devShells.${system} = {
     default = import ./shell.nix {inherit pkgs lint;};
     fuzz = import ./fuzz.nix {inherit pkgs;};
   };
   formatter.${system} = import ./fmt.nix {inherit pkgs;};
-  checks.${system} = import ./checks.nix {
-    inherit pkgs rust stella lint;
-    inherit (inputs) self;
-  };
+  checks.${system} = checks;
 }
