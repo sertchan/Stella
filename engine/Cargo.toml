@@ -105,6 +105,6 @@ unwrap_used = "warn"
 wildcard_imports = "warn"
 
 [profile.release]
-lto = "fat"
-codegen-units = 1
+lto = "thin"
+codegen-units = 16
 overflow-checks = true
