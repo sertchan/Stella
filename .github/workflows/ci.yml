@@ -25,7 +25,20 @@ jobs:
       - uses: ./.github/actions/nix
       - id: list
         name: list flake checks
-        run: echo "checks=$(nix eval --json .#checks.x86_64-linux --apply builtins.attrNames)" >> "$GITHUB_OUTPUT"
+        run: |
+          checks=$(nix eval --json .#checks.x86_64-linux --apply builtins.attrNames)
+          echo "checks=$checks" >> "$GITHUB_OUTPUT"
+          report="$RUNNER_TEMP/report.txt"
+          {
+            printf '%-9s%s\n' plan "$(jq length <<< "$checks") flake checks, each one runs as its own job in parallel"
+            printf '%-9s%s\n' gate "ci-success passes only when every check and commitlint, outdated and cargo-audit pass"
+            echo
+            jq -r '.[]' <<< "$checks" | while read -r c; do
+              printf '  %-16s nix build .#checks.x86_64-linux.%s\n' "$c" "$c"
+            done
+          } > "$report"
+          cat "$report"
+          { echo '```text'; cat "$report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   check:
     name: ${{ matrix.check }}
@@ -53,6 +66,7 @@ jobs:
             *) deps="" ;;
           esac
           echo "name=$deps" >> "$GITHUB_OUTPUT"
+          printf '%-9s%s\n' check "$CHECK" deps "${deps:-none}"
       - id: nix
         uses: ./.github/actions/nix
         with:
@@ -61,25 +75,52 @@ jobs:
         env:
           CHECK: ${{ matrix.check }}
         run: |
-          set -o pipefail
-          nix build --print-build-logs --no-link ".#checks.x86_64-linux.$CHECK" 2>&1 | tee "$RUNNER_TEMP/build.log"
-      - name: explain the failure
-        if: failure()
-        env:
-          CHECK: ${{ matrix.check }}
-        run: |
           log="$RUNNER_TEMP/build.log"
-          why="$RUNNER_TEMP/why.txt"
-          sed -E 's/^[A-Za-z0-9.+_-]+> //' "$log" | awk '/^error\[/ { on = 1 } on { print } on && /^$/ { on = 0 }' > "$why" || true
-          [ -s "$why" ] || tail -n 80 "$log" > "$why"
+          own="$RUNNER_TEMP/own.log"
+          report="$RUNNER_TEMP/report.txt"
+          attr=".#checks.x86_64-linux.$CHECK"
+          pname=$(nix eval --raw "$attr" --apply 'd: (builtins.parseDrvName d.name).name')
+          begin=$(date +%s)
+          echo "::group::nix build log of every derivation, open for the full output"
+          set +e
+          nix build --print-build-logs --no-link "$attr" 2>&1 | tee "$log"
+          st=${PIPESTATUS[0]}
+          set -e
+          echo "::endgroup::"
+          secs=$(( $(date +%s) - begin ))
+          sed -n "s/^$pname> //p" "$log" > "$own"
+          built=$(grep -c "^building '" "$log" || true)
+          fetched=$(grep -c "^copying path" "$log" || true)
           {
-            echo "### $CHECK rejected this change"
+            printf '%-9s%s\n' nix "built $built derivation(s) and fetched $fetched store path(s) in $secs s"
+            printf '%-9s%s\n' output "$pname, $(wc -l < "$own") line(s)"
+            echo
+            if [ -s "$own" ]; then cat "$own"; else echo "the check printed nothing, see the build log above"; fi
+          } > "$report"
+          cat "$report"
+          lines=$(wc -l < "$report")
+          {
             echo '```text'
-            cat "$why"
+            if [ "$lines" -le 150 ]; then
+              cat "$report"
+            else
+              head -n 12 "$report"
+              echo
+              echo "  $(( lines - 20 )) more line(s) of tool output, open the job log to read them"
+              echo
+              tail -n 8 "$report"
+            fi
             echo '```'
-            echo "Run nix build .#checks.x86_64-linux.$CHECK or nix flake check to see the same report locally."
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "::error title=$CHECK rejected this change::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' "$why")"
+          if [ "$st" -ne 0 ]; then
+            why="$RUNNER_TEMP/why.txt"
+            awk '/^error\[/ { on = 1 } on { print } on && /^$/ { on = 0 }' "$own" > "$why" || true
+            [ -s "$why" ] || tail -n 40 "$log" > "$why"
+            echo "::error title=$CHECK rejected this change::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' "$why")"
+            echo
+            echo "Run nix build $attr or nix flake check to see the same report locally."
+          fi
+          exit "$st"
       - name: save the dependency derivation
         if: success() && steps.nix.outputs.key != '' && steps.nix.outputs.hit != 'true'
         env:
@@ -91,30 +132,34 @@ jobs:
         with:
           path: ${{ steps.nix.outputs.dir }}
           key: ${{ steps.nix.outputs.key }}
-      - name: test and coverage summary
+      - name: test and coverage report
         if: always() && matrix.check == 'test'
         run: |
           nix build .#coverage -o coverage || exit 0
-          row() { printf '%-12s %s\n' "$1" "$2"; }
+          report="$RUNNER_TEMP/tests.txt"
           junit=coverage/junit.xml
+          totals=coverage/summary.json
           head=$(grep -o '<testsuites [^>]*>' "$junit")
           attr() { echo "$head" | grep -o " $1=\"[^\"]*\"" | cut -d'"' -f2; }
+          cell() { awk -v a="$1" -v b="$2" 'BEGIN { if (b == 0) printf "%13s %6s", "-", "-"; else printf "%13s %5.1f%%", a "/" b, a * 100 / b }'; }
+          line() { printf '  %-10s %s  %s  %s\n' "$1" "$(cell "$2" "$3")" "$(cell "$4" "$5")" "$(cell "$6" "$7")"; }
           {
-            echo '```text'
-            row tests "$(attr tests) run, $(attr failures) failed, $(attr skipped) skipped, $(attr time) s, nextest, dev profile with overflow checks"
-            echo "  slowest"
+            printf '%-9s%s\n' tests "$(attr tests) run, $(attr failures) failed, $(attr skipped) skipped in $(attr time) s"
+            echo
+            echo "tests per binary"
+            grep -o '<testsuite [^>]*>' "$junit" |
+              sed -E 's/.* name="([^"]*)".* tests="([^"]*)".* failures="([^"]*)".*/\2 \3 \1/' |
+              sort -k3 |
+              while read -r n f s; do printf '  %-28s %4s tests  %s failed\n' "$s" "$n" "$f"; done
+            echo
+            echo "slowest tests"
             grep -o '<testcase [^>]*>' "$junit" |
               sed -E 's/.* name="([^"]*)" classname="([^"]*)".* time="([^"]*)".*/\3 \2 \1/' |
-              sort -rn | head -5 |
-              while read -r t c n; do printf '    %8s s  %-24s %s\n' "$t" "$c" "$n"; done
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          totals=coverage/summary.json
-          cell() { awk -v a="$1" -v b="$2" 'BEGIN { if (b == 0) printf "%13s %6s", "-", "-"; else printf "%13s %5.1f%%", a "/" b, a * 100 / b }'; }
-          line() { printf '%-10s %s  %s  %s\n' "$1" "$(cell "$2" "$3")" "$(cell "$4" "$5")" "$(cell "$6" "$7")"; }
-          {
-            echo '```text'
-            printf '%-10s %20s  %20s  %20s\n' crate lines functions regions
+              sort -rn | head -8 |
+              while read -r t c n; do printf '  %8s s  %-24s %s\n' "$t" "$c" "$n"; done
+            echo
+            echo "coverage per crate"
+            printf '  %-10s %20s  %20s  %20s\n' crate lines functions regions
             jq -r '.data[0].files
               | group_by(.filename | capture("crates/(?<c>[^/]+)/").c)
               | map({
@@ -141,8 +186,9 @@ jobs:
               | [(.filename | sub(".*/crates/"; "")), .summary.lines.covered, .summary.lines.count, .summary.lines.percent]
               | @tsv' "$totals" |
             while IFS=$'\t' read -r f a b p; do printf '  %-36s %13s %5.1f%%\n' "$f" "$a/$b" "$p"; done
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          } > "$report"
+          cat "$report"
+          { echo '```text'; cat "$report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - if: always() && matrix.check == 'test' && hashFiles('coverage/summary.json') != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
@@ -165,6 +211,8 @@ jobs:
         uses: ./.github/actions/nix
         with:
           deps: lintDeps
+      - name: build stella-lint
+        run: nix build --print-build-logs --no-link .#lint
       - name: check every new commit
         env:
           EVENT: ${{ github.event_name }}
@@ -175,14 +223,19 @@ jobs:
         run: |
           if [ "$EVENT" = pull_request ]; then
             range="$BASE..$HEAD"
+            why="the commits of the pull request"
           elif [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
             range="origin/main..$AFTER"
+            why="a new branch, so every commit that main does not have yet"
           elif ! git merge-base --is-ancestor "$BEFORE" "$AFTER" 2> /dev/null; then
-            echo "The push rewrote history, so every commit on the branch is checked."
             range="$AFTER"
+            why="the push rewrote history, so every commit on the branch"
           else
             range="$BEFORE..$AFTER"
+            why="the commits that this push added"
           fi
+          printf '%-9s%s\n' range "$range" reason "$why"
+          echo
           nix run .#lint -- commits "$range"
       - name: check pull request title, which becomes the squash commit subject
         if: github.event_name == 'pull_request'
@@ -204,6 +257,8 @@ jobs:
         uses: ./.github/actions/nix
         with:
           deps: lintDeps
+      - name: build stella-lint
+        run: nix build --print-build-logs --no-link .#lint
       - name: newest stable releases
         env:
           GH_TOKEN: ${{ github.token }}
@@ -218,34 +273,33 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/nix
+      - name: fetch cargo-audit
+        run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit --version
       - name: cargo audit
         run: |
+          audit() { nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit "$@"; }
+          report="$RUNNER_TEMP/report.txt"
           status=0
-          rows=""
-          found=""
-          for lock in Cargo.lock; do
-            nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit --deny warnings --file "$lock" || status=1
-            nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit --json --file "$lock" > audit.json || true
-            db=$(jq -r '.database | "\(.["advisory-count"]) advisories, commit \(.["last-commit"]), updated \(.["last-updated"])"' audit.json)
-            rows+=$(jq -r --arg lock "$lock" '[$lock, .lockfile["dependency-count"], .vulnerabilities.count, ([.warnings[]? | length] | add // 0)] | @tsv' audit.json)$'\n'
-            found+=$(jq -r --arg lock "$lock" '
-              ((.vulnerabilities.list // [])[] | [$lock, "vulnerability", .advisory.id, "\(.package.name) \(.package.version)", .advisory.title]),
-              ((.warnings // {}) | to_entries[] | .key as $k | .value[] | [$lock, $k, (.advisory.id // "-"), "\(.package.name) \(.package.version)", (.advisory.title // "")])
-              | @tsv' audit.json)
-            [ -n "$found" ] && found+=$'\n'
-          done
+          audit --deny warnings --file Cargo.lock || status=1
+          audit --json --file Cargo.lock > audit.json || true
           {
-            echo '```text'
-            printf '%-12s %s\n' database "$db"
+            printf '%-9s%s\n' check cargo-audit
+            printf '%-9s%s\n' purpose "Every locked crate is checked against the RustSec advisory database. A known vulnerability, an unmaintained crate or a yanked release is rejected."
+            printf '%-9s%s\n' tool "$(audit --version)"
+            jq -r '.database | "database \(.["advisory-count"]) advisories, commit \(.["last-commit"]), updated \(.["last-updated"])"' audit.json
+            jq -r '"scope    Cargo.lock with \(.lockfile["dependency-count"]) crates"' audit.json
             echo
-            printf '%-16s %7s %16s %9s\n' lockfile crates vulnerabilities warnings
-            printf '%s' "$rows" | while IFS=$'\t' read -r l c v w; do printf '%-16s %7s %16s %9s\n' "$l" "$c" "$v" "$w"; done
-            if [ -n "$found" ]; then
-              echo
-              printf '%s' "$found" | while IFS=$'\t' read -r l k id p t; do printf '%-16s %-13s %-18s %-24s %s\n' "$l" "$k" "$id" "$p" "$t"; done
-            fi
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+            jq -r '"vulnerabilities  \(.vulnerabilities.count)", (.warnings // {} | to_entries[] | "\(.key)  \(.value | length)")' audit.json | sed 's/^/  /'
+            jq -r '
+              ((.vulnerabilities.list // [])[] | ["vulnerability", .advisory.id, "\(.package.name) \(.package.version)", .advisory.title]),
+              ((.warnings // {}) | to_entries[] | .key as $k | .value[] | [$k, (.advisory.id // "-"), "\(.package.name) \(.package.version)", (.advisory.title // "")])
+              | @tsv' audit.json |
+              while IFS=$'\t' read -r k id p t; do printf '  %-13s %-18s %-24s %s\n' "$k" "$id" "$p" "$t"; done
+            echo
+            if [ "$status" -eq 0 ]; then echo "result   cargo-audit passed"; else echo "result   cargo-audit failed, see the advisories above"; fi
+          } > "$report"
+          cat "$report"
+          { echo '```text'; cat "$report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
   ci-success:
@@ -254,17 +308,41 @@ jobs:
     needs: [plan, check, commitlint, outdated, cargo-audit]
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
     steps:
       - name: every required job passed
         env:
           NEEDS: ${{ toJSON(needs) }}
           EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          SUBJECT: ${{ github.event.head_commit.message || github.event.pull_request.title || '' }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          API: repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs?per_page=100
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -o pipefail
+          report="$RUNNER_TEMP/report.txt"
           failed=0
           {
-            echo '```text'
-            printf '%-14s %s\n' job result
+            printf '%-9s%s\n' commit "${SHA:0:12}  ${SUBJECT%%$'\n'*}"
+            printf '%-9s%s\n' event "$EVENT on $REF"
+            printf '%-9s%s\n' run "$RUN"
+            echo
+            gh api "$API" | jq -r '
+              [.jobs[] | select(.name != "ci-success" and .started_at != null)] as $j
+              | ($j | map(.started_at | fromdate) | min) as $t0
+              | "wall     \(($j | map((.completed_at // .started_at) | fromdate) | max) - $t0) s from the first job start to the last job end",
+                "",
+                "jobs, in the order they started",
+                ($j | sort_by(.started_at)[] | [.name, (.conclusion // .status), "\(((.completed_at // .started_at) | fromdate) - (.started_at | fromdate)) s", "+\((.started_at | fromdate) - $t0) s"] | @tsv)' |
+              while IFS=$'\t' read -r a b c d; do
+                if [ -n "$b" ]; then printf '  %-16s %-10s %7s  started %s\n' "$a" "$b" "$c" "$d"; else echo "$a"; fi
+              done || echo "jobs     the GitHub API did not answer, see the run page"
+            echo
+            echo "required results"
             while read -r job result; do
               ok=no
               if [ "$result" = success ]; then
@@ -272,16 +350,21 @@ jobs:
               elif [ "$result" = skipped ] && [ "$job" = commitlint ] && [ "$EVENT" != push ] && [ "$EVENT" != pull_request ]; then
                 ok=yes
               fi
-              printf '%-14s %s\n' "$job" "$result"
+              printf '  %-16s %-10s %s\n' "$job" "$result" "$([ "$ok" = yes ] && echo accepted || echo rejected)"
               if [ "$ok" = no ]; then
                 failed=1
-                echo "::error title=$job did not pass::The $job job ended with $result. Open $RUN, select $job and read its summary: every rejection names the rule, what was found, what is expected, why the rule exists and how to fix it."
+                echo "::error title=$job did not pass::The $job job ended with $result. Open $RUN, select $job and read its log or summary: every rejection names the rule, what was found, what is expected, why the rule exists and how to fix it."
               fi
             done < <(jq -r 'to_entries[] | "\(.key) \(.value.result)"' <<< "$NEEDS")
-            echo '```'
+            echo
             if [ "$failed" -ne 0 ]; then
-              echo "This change is rejected. Every job above must pass before it can land on main."
-              echo "Each failed job explains why in its own summary and in the annotations on the pull request."
+              echo "result   rejected, every job above must pass before this commit can land on main"
+              echo "         each failed job explains why in its log, its summary and the annotations"
+            else
+              echo "result   accepted, every required job passed and main may take this commit"
             fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          } > "$report"
+          grep -v '^::error' "$report" || true
+          grep '^::error' "$report" || true
+          { echo '```text'; grep -v '^::error' "$report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$failed"
