@@ -87,6 +87,9 @@ pkgs.writeShellApplication {
       lock="$tree/engine/Cargo.lock"
       [ -f "$lock" ] || lock="$tree/Cargo.lock"
       start "cargo-audit-$short" cargo audit --deny warnings --file "$lock"
+      if ! git diff --quiet origin/main "$rev" -- lists 2> /dev/null; then
+        start "dead-domains-$short" nix run "git+file://$root?rev=$rev#stella" -- --state "$logs/state-$short" lists check --dir "$tree/lists"
+      fi
     done
 
     echo "pre-push: running ''${names[*]} in parallel on the pushed commits"
