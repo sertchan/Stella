@@ -63,11 +63,17 @@ const LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
 const LOOKUP_TRIES: usize = 4;
 
 pub async fn lookup_a(name: &str) -> Vec<Ipv4Addr> {
+    lookup_a_with(&stella_core::config::resolvers(), name).await
+}
+
+pub async fn lookup_a_with(servers: &[SocketAddr], name: &str) -> Vec<Ipv4Addr> {
     let key = name.trim_end_matches('.').to_ascii_lowercase();
     if let Some(v) = CACHE.lock().ok().and_then(|c| c.get(&key).cloned()) {
         return v;
     }
-    let servers = stella_core::config::resolvers();
+    if servers.is_empty() {
+        return Vec::new();
+    }
     let Ok(mut stub) = Stub::new().await else {
         return Vec::new();
     };
