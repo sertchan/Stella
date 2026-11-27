@@ -101,6 +101,21 @@ in {
       cargoClippyExtraArgs = "--all-targets -- -D warnings";
       doInstallCargoArtifacts = false;
     }));
+  cargo-lockfile = mkCheck {
+    name = "cargo-lockfile";
+    inputs = [pkgs.cargo];
+    why = "Cargo.lock pins the exact version of every crate, so that every build and every machine uses the same code. A Cargo.toml change that is not reflected in Cargo.lock makes the build depend on whatever the registry serves that day.";
+    fix = "Run cargo check in nix develop, which updates Cargo.lock, and commit Cargo.lock together with the Cargo.toml change.";
+    script = ''
+      cp -r ${rust.common.src} source
+      chmod -R u+w source
+      cd source
+      export CARGO_HOME=$TMPDIR/cargo-home
+      mkdir -p .cargo
+      cp ${rust.craneLib.vendorCargoDeps {inherit (rust.common) src;}}/config.toml .cargo/config.toml
+      cargo metadata --format-version 1 --locked --offline > /dev/null
+    '';
+  };
   cargo-deny = explain "cargo-deny" "cargo-deny keeps the dependency tree to allowed licenses, the crates.io registry and no wildcard versions." "Read the report above. Replace the dependency, or change deny.toml and give the reason in the commit message." (rust.craneLib.cargoDeny (rust.common
     // {
       src = toSource {
