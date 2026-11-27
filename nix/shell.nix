@@ -5,6 +5,7 @@
   preCommit = import ./pre-commit.nix {inherit pkgs lint;};
   prePush = import ./pre-push.nix {inherit pkgs lint;};
   commitMsg = import ./commit-msg.nix {inherit pkgs lint;};
+  land = import ./land.nix {inherit pkgs;};
 in
   pkgs.mkShell {
     name = "stella";
@@ -27,6 +28,7 @@ in
       preCommit
       prePush
       commitMsg
+      land
       lint
       pkgs.cargo-outdated
       pkgs.cargo-machete

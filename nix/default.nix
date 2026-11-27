@@ -26,6 +26,6 @@ in {
   formatter.${system} = import ./fmt.nix {inherit pkgs;};
   checks.${system} = checks;
   legacyPackages.${system}.deps = {
-    inherit (rust) releaseDeps debugDeps measuredDeps lintDeps;
+    inherit (rust) debugDeps measuredDeps lintDeps;
   };
 }
