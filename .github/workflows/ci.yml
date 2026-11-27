@@ -158,6 +158,8 @@ jobs:
     name: release
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      sha256: ${{ steps.hash.outputs.sha256 }}
     permissions:
       contents: read
       id-token: write
@@ -185,9 +187,9 @@ jobs:
           key: ${{ steps.nix.outputs.key }}
       - name: smoke test
         run: ./result/bin/stella --help > /dev/null
-      - name: rebuild bit for bit
-        id: repro
-        run: nix build --rebuild --print-build-logs
+      - id: hash
+        name: hash the binary for the reproducibility comparison
+        run: echo "sha256=$(sha256sum result/bin/.stella-wrapped | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: sbom
         if: github.event_name == 'push'
         run: |
@@ -216,7 +218,6 @@ jobs:
       - name: summary
         if: always()
         env:
-          REPRO: ${{ steps.repro.outcome }}
           REPO: ${{ github.repository }}
         run: |
           row() { printf '%-12s %s\n' "$1" "$2"; }
@@ -236,11 +237,7 @@ jobs:
               row sha256 "$(sha256sum "$bin" | cut -d' ' -f1)"
               row closure "$(nix path-info --closure-size ./result | awk '{printf "%d MiB", $2 / 1048576}') in $(nix path-info --recursive ./result | wc -l) store paths"
             fi
-            case "$REPRO" in
-              success) row rebuild "identical, nix build --rebuild gave the same bytes" ;;
-              failure) row rebuild "FAIL, nix build --rebuild failed or gave different bytes" ;;
-              *) row rebuild "not run" ;;
-            esac
+            row rebuild "ci-success compares this sha256 with an independent build on another runner"
             if [ -f dist/stella.cdx.json ]; then
               echo
               echo "signed build"
@@ -251,6 +248,25 @@ jobs:
             fi
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  reproducible-build:
+    name: reproducible-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      sha256: ${{ steps.hash.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/nix
+        with:
+          deps: releaseDeps
+      - name: build on a second runner
+        run: nix build --print-build-logs
+      - id: hash
+        name: hash the binary
+        run: echo "sha256=$(sha256sum result/bin/.stella-wrapped | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
   commitlint:
     name: commitlint
@@ -419,7 +435,7 @@ jobs:
   ci-success:
     name: ci-success
     if: always()
-    needs: [plan, check, release, commitlint, outdated, cargo-audit, fuzz]
+    needs: [plan, check, release, reproducible-build, commitlint, outdated, cargo-audit, fuzz]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -428,6 +444,8 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
           EVENT: ${{ github.event_name }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          FIRST: ${{ needs.release.outputs.sha256 }}
+          SECOND: ${{ needs.reproducible-build.outputs.sha256 }}
         run: |
           failed=0
           {
@@ -446,6 +464,15 @@ jobs:
                 echo "::error title=$job did not pass::The $job job ended with $result. Open $RUN, select $job and read its summary: every rejection names the rule, what was found, what is expected, why the rule exists and how to fix it."
               fi
             done < <(jq -r 'to_entries[] | "\(.key) \(.value.result)"' <<< "$NEEDS")
+            if [ -n "$FIRST" ] && [ -n "$SECOND" ]; then
+              if [ "$FIRST" = "$SECOND" ]; then
+                printf '%-14s %s\n' reproducible "yes, two runners built the same bytes $FIRST"
+              else
+                failed=1
+                printf '%-14s %s\n' reproducible "NO, release built $FIRST and reproducible-build built $SECOND"
+                echo "::error title=build is not reproducible::Two independent runners built different binaries from the same commit: $FIRST and $SECOND. Every input must be pinned by flake.lock and Cargo.lock, and the build must not read the clock, the host name, random data or paths outside the Nix sandbox. Find the difference with diffoscope on the two binaries."
+              fi
+            fi
             echo '```'
             if [ "$failed" -ne 0 ]; then
               echo "This change is rejected. Every job above must pass before it can land on main."
