@@ -387,7 +387,7 @@ jobs:
             fuzz/target
           key: fuzz-build-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'fuzz/Cargo.lock') }}
           restore-keys: fuzz-build-${{ matrix.target }}-
-      - name: fuzz for three minutes
+      - name: fuzz for three minutes on every core
         working-directory: fuzz
         env:
           TARGET: ${{ matrix.target }}
@@ -396,25 +396,25 @@ jobs:
           before=$(find "corpus/$TARGET" -type f | wc -l)
           set -o pipefail
           status=0
-          nix develop ..#fuzz -c cargo fuzz run -s none "$TARGET" -- -max_total_time=180 -print_final_stats=1 2>&1 | tee fuzz.log || status=$?
+          nix develop ..#fuzz -c cargo fuzz run -s none "$TARGET" -- -max_total_time=180 -fork="$(nproc)" 2>&1 | tee fuzz.log || status=$?
           after=$(find "corpus/$TARGET" -type f | wc -l)
-          final() { grep -o "stat::$1: *[0-9.]*" fuzz.log | grep -o '[0-9.]*$' | tail -1; }
-          last=$(grep -E '^#[0-9]+' fuzz.log | tail -1)
-          field() { echo "$last" | grep -o "$1: [0-9]*" | cut -d' ' -f2; }
+          last=$(grep -E '^#[0-9]+:' fuzz.log | tail -1)
+          field() { echo "$last" | grep -oE "(^| )$1: [0-9/]+" | head -1 | awk '{print $2}'; }
           row() { printf '%-16s %s\n' "$1" "$2"; }
           {
             echo '```text'
             row target "$TARGET"
             row result "$(if [ "$status" -eq 0 ]; then echo "no crash"; else echo "FAIL, exit $status"; fi)"
             row sanitizer "none, nixpkgs rustc has no address sanitizer runtime"
-            row time "$(grep -o 'Done [0-9]* runs in [0-9]* second' fuzz.log | awk '{print $5}') s"
-            row runs "$(final number_of_executed_units)"
-            row "runs per sec" "$(final average_exec_per_sec)"
+            row workers "$(nproc) processes in libFuzzer fork mode"
+            row time "$(field time) s"
+            row runs "$(echo "$last" | grep -o '^#[0-9]*' | tr -d '#')"
+            row "runs per sec" "$(field exec/s)"
             row edges "$(field cov)"
             row features "$(field ft)"
             row corpus "$before -> $after inputs, $(du -sb "corpus/$TARGET" | cut -f1) bytes"
-            row "new inputs" "$(final new_units_added)"
-            row "peak memory" "$(final peak_rss_mb) MiB"
+            row "oom timeout crash" "$(field oom/timeout/crash)"
+            row jobs "$(field job)"
             if [ "$status" -ne 0 ]; then
               echo
               echo "crash"
