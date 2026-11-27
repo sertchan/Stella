@@ -37,10 +37,10 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     let w = ctx.store.writer()?;
     let mut out = Out::new();
     let mut axfr_zones = 0usize;
-    let mut by_zone: std::collections::BTreeMap<String, Vec<std::net::Ipv4Addr>> =
+    let mut by_zone: std::collections::BTreeMap<String, Vec<std::net::SocketAddr>> =
         Default::default();
     for p in &pairs {
-        by_zone.entry(p.zone.clone()).or_default().push(p.ip);
+        by_zone.entry(p.zone.clone()).or_default().push(p.server);
     }
     let mut set = JoinSet::new();
     let mut it = by_zone.into_iter();
@@ -48,8 +48,8 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         while set.len() < args.par.max(1) {
             let Some((z, ips)) = it.next() else { break };
             set.spawn(async move {
-                for ip in ips {
-                    let names = zone::axfr(&z, ip).await;
+                for server in ips {
+                    let names = zone::axfr(&z, server).await;
                     if !names.is_empty() {
                         return (z, names);
                     }
@@ -80,7 +80,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     for (i, next) in &walkable {
         walked
             .entry(pairs[*i].zone.clone())
-            .or_insert((pairs[*i].ip, next.clone()));
+            .or_insert((pairs[*i].server, next.clone()));
     }
     eprintln!("axfr-zones={axfr_zones} nsec-zones={}", walked.len());
     if args.walk {

@@ -68,6 +68,7 @@ pub const MANAGED: &[&str] = &[
     "dns.com",
 ];
 
+pub const DNS_PORT: u16 = 53;
 const SERVERS_PER_ZONE: usize = 2;
 const AXFR_CONNECT: Duration = Duration::from_secs(4);
 const AXFR_TOTAL: Duration = Duration::from_secs(15);
@@ -78,7 +79,7 @@ const BLACK_LIE: &str = "\\000";
 #[derive(Clone, Debug)]
 pub struct Pair {
     pub zone: String,
-    pub ip: Ipv4Addr,
+    pub server: SocketAddr,
 }
 
 fn managed(ns: &str) -> bool {
@@ -129,7 +130,7 @@ pub async fn selfhosted(cfg: &Config, zones: Vec<String>) -> Result<Vec<Pair>> {
         for ip in ips.into_iter().take(SERVERS_PER_ZONE) {
             pairs.push(Pair {
                 zone: zone.clone(),
-                ip,
+                server: SocketAddr::from((ip, DNS_PORT)),
             });
         }
     }
@@ -143,10 +144,9 @@ async fn read_message(stream: &mut TcpStream, buf: &mut Vec<u8>) -> Option<Messa
     wire::parse(buf)
 }
 
-pub async fn axfr(zone: &str, ip: Ipv4Addr) -> Vec<String> {
+pub async fn axfr(zone: &str, server: SocketAddr) -> Vec<String> {
     let run = async {
-        let addr = SocketAddr::from((ip, 53));
-        let mut stream = tokio::time::timeout(AXFR_CONNECT, TcpStream::connect(addr))
+        let mut stream = tokio::time::timeout(AXFR_CONNECT, TcpStream::connect(server))
             .await
             .ok()?
             .ok()?;
@@ -202,7 +202,7 @@ pub async fn nsec_probe(cfg: &Config, pairs: &[Pair]) -> Result<Vec<(usize, Stri
         .map(|p| Query {
             name: format!("{}.{}", rng.label(), p.zone),
             qtype: wire::A,
-            server: Some(SocketAddr::from((p.ip, 53))),
+            server: Some(p.server),
             rd: false,
             dnssec: true,
             subnet: None,
@@ -210,7 +210,7 @@ pub async fn nsec_probe(cfg: &Config, pairs: &[Pair]) -> Result<Vec<(usize, Stri
         .collect();
     let mut index: FxHashMap<String, usize> = FxHashMap::default();
     for (i, q) in qs.iter().enumerate() {
-        index.insert(format!("{}|{}", q.name, pairs[i].ip), i);
+        index.insert(format!("{}|{}", q.name, pairs[i].server), i);
     }
     let mut out = Vec::new();
     engine::run(cfg, &qs, |r| {
@@ -221,12 +221,8 @@ pub async fn nsec_probe(cfg: &Config, pairs: &[Pair]) -> Result<Vec<(usize, Stri
         if next.starts_with(BLACK_LIE) {
             return;
         }
-        let ip = r
-            .query
-            .server
-            .map(|s| s.ip().to_string())
-            .unwrap_or_default();
-        if let Some(i) = index.get(&format!("{}|{ip}", r.query.name)) {
+        let server = r.query.server.map(|s| s.to_string()).unwrap_or_default();
+        if let Some(i) = index.get(&format!("{}|{server}", r.query.name)) {
             out.push((*i, next.to_string()));
         }
     })
@@ -234,11 +230,15 @@ pub async fn nsec_probe(cfg: &Config, pairs: &[Pair]) -> Result<Vec<(usize, Stri
     Ok(out)
 }
 
-pub async fn walk(zone: &str, ip: Ipv4Addr, budget: Duration, max_names: usize) -> Vec<String> {
+pub async fn walk(
+    zone: &str,
+    server: SocketAddr,
+    budget: Duration,
+    max_names: usize,
+) -> Vec<String> {
     let Ok(mut stub) = Stub::new().await else {
         return Vec::new();
     };
-    let server = SocketAddr::from((ip, 53));
     let suffix = format!(".{zone}");
     let deadline = tokio::time::Instant::now() + budget;
     let mut names: FxHashSet<String> = FxHashSet::default();
