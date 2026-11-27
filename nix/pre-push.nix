@@ -9,6 +9,8 @@ pkgs.writeShellApplication {
     pkgs.gh
     pkgs.coreutils
     pkgs.gnugrep
+    pkgs.gnused
+    pkgs.jq
     pkgs.cargo
     pkgs.cargo-audit
     lint
@@ -90,24 +92,50 @@ pkgs.writeShellApplication {
       wait "$pid" || true
     done
 
+    flake_report() {
+      local rev=$1
+      echo "flake checks of ''${rev:0:10}, one line per check from its build log"
+      printf '  %-15s %-18s %-38s %s\n' check result tool scope
+      nix eval --json "git+file://$root?rev=$rev#checks.x86_64-linux" --apply 'builtins.mapAttrs (n: d: d.drvPath)' 2> /dev/null |
+        jq -r 'to_entries[] | "\(.key) \(.value)"' |
+        while read -r check drv; do
+          text=$(nix log "$drv" 2> /dev/null || true)
+          field() { printf '%s\n' "$text" | sed -n "s/^$1 *//p" | tail -n 1; }
+          result=$(field result | sed "s/^$check //")
+          printf '  %-15s %-18s %-38s %s\n' "$check" "''${result:-no build log}" "$(field tool | cut -c1-38)" "$(field scope)"
+        done
+    }
+
     failed=()
+    echo
+    echo "pre-push: steps"
     for name in "''${names[@]}"; do
       read -r status secs < "$logs/$name.status"
       if [ "$status" -eq 0 ]; then
-        printf '  ok    %-24s %4ss\n' "$name" "$secs"
+        printf '  %-28s ok      %4s s\n' "$name" "$secs"
       else
-        printf '  FAIL  %-24s %4ss\n' "$name" "$secs"
+        printf '  %-28s failed  %4s s\n' "$name" "$secs"
         failed+=("$name")
       fi
     done
 
-    if [ "''${#failed[@]}" -gt 0 ]; then
-      for name in "''${failed[@]}"; do
-        echo
-        echo "---- $name ----"
-        cat "$logs/$name.log"
-      done
+    for name in "''${names[@]}"; do
       echo
+      echo "pre-push: $name"
+      case "$name" in
+        flake-check-*)
+          for rev in "''${revs[@]}"; do
+            [ "flake-check-''${rev:0:10}" = "$name" ] && flake_report "$rev" | sed 's/^/  /'
+          done
+          read -r status _ < "$logs/$name.status"
+          [ "$status" -eq 0 ] || sed 's/^/  /' "$logs/$name.log"
+          ;;
+        *) sed 's/^/  /' "$logs/$name.log" ;;
+      esac
+    done
+
+    echo
+    if [ "''${#failed[@]}" -gt 0 ]; then
       echo "pre-push: the push was refused because ''${failed[*]} failed."
       echo "Nothing left this machine. The reports above explain each rule and how to fix it."
       exit 1
