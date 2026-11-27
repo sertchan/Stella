@@ -1,8 +1,8 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use crate::pipeline::{self, DnsArgs};
 use anyhow::Result;
 use std::time::Instant;
-use stella_dns::wild::Verdict;
+use stella_dns::wildcard::Verdict;
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -12,7 +12,7 @@ pub struct Args {
     wild: bool,
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     let names = ctx.names();
     let started = Instant::now();
     let w = ctx.store.writer()?;
@@ -23,7 +23,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     let mut timeouts = 0usize;
     for r in &res {
         answered += usize::from(r.res.answered());
-        timeouts += usize::from(r.res.rcode == stella_dns::chase::TIMEOUT);
+        timeouts += usize::from(r.res.rcode == stella_dns::resolver::TIMEOUT);
         out.row(&[
             &r.res.host,
             &r.res.rcode.to_string(),

@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -75,7 +75,7 @@ fn verdicts(v: &str) -> String {
         .join(",")
 }
 
-pub fn review(ctx: &Ctx, args: &ReviewArgs) -> Result<()> {
+pub fn review(ctx: &Context, args: &ReviewArgs) -> Result<()> {
     let rows = ctx.store.rows(&format!(
         "SELECT hit.host, hit.product, hit.verdict, hit.evidence, coalesce(name.known, ''),
                 coalesce((SELECT group_concat(source || ':' || detail, ' ') FROM (SELECT source, detail FROM origin WHERE origin.host = hit.host LIMIT 3)), '')
@@ -97,7 +97,12 @@ pub struct Selection {
     pub metadata: String,
 }
 
-pub fn select(ctx: &Ctx, with_known: bool, unfiled: bool, zones_min: usize) -> Result<Selection> {
+pub fn select(
+    ctx: &Context,
+    with_known: bool,
+    unfiled: bool,
+    zones_min: usize,
+) -> Result<Selection> {
     let filter = if with_known {
         ""
     } else {
@@ -172,7 +177,7 @@ pub fn render(sel: &Selection, format: Format) -> String {
     text
 }
 
-pub fn export(ctx: &Ctx, args: &ExportArgs) -> Result<()> {
+pub fn export(ctx: &Context, args: &ExportArgs) -> Result<()> {
     let sel = select(ctx, args.with_known, args.unfiled, args.zones)?;
     let mut out = Out::new();
     for l in render(&sel, args.format).lines() {
@@ -213,7 +218,7 @@ pub const FILES: &[(&str, Format)] = &[
     ("rpz.txt", Format::Rpz),
 ];
 
-pub fn publish(ctx: &Ctx, args: &PublishArgs) -> Result<()> {
+pub fn publish(ctx: &Context, args: &PublishArgs) -> Result<()> {
     let sel = select(ctx, false, true, args.zones)?;
     std::fs::create_dir_all(&args.dir)?;
     for (name, format) in FILES {

@@ -1,9 +1,9 @@
 use std::collections::BTreeSet;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use stella_dns::engine::{self, Config, Query};
+use stella_dns::transport::{self, Config, Query};
 use stella_dns::wire::{self, Data};
-use stella_dns::{chase, ecs, stub, wild, zone};
+use stella_dns::{ecs, resolver, stub, wildcard, zone};
 use stella_testkit::dns::{self as fake, Answer, Dns, Zone, a, cname, ns, nsec, rr, soa};
 
 fn cfg(d: &Dns) -> Config {
@@ -41,7 +41,7 @@ async fn engine_retries_servfail_and_reports_silence() {
         .map(|n| Query::recursive((*n).into(), wire::A))
         .collect();
     let mut got = std::collections::BTreeMap::new();
-    engine::run(&cfg(&d), &qs, |r| {
+    transport::run(&cfg(&d), &qs, |r| {
         got.insert(r.query.name.clone(), r.msg.map(|m| m.rcode));
     })
     .await
@@ -53,7 +53,7 @@ async fn engine_retries_servfail_and_reports_silence() {
     let flaky = d.asked().iter().filter(|q| q.name == "flaky.test").count();
     assert_eq!(flaky, 3);
     assert!(d.asked().iter().all(|q| q.rd && !q.tcp));
-    engine::run(&cfg(&d), &[], |_| {}).await.expect("empty");
+    transport::run(&cfg(&d), &[], |_| {}).await.expect("empty");
 }
 
 #[tokio::test]
@@ -79,7 +79,7 @@ async fn resolve_follows_chains_and_retries_lost_names() {
     )
     .await
     .expect("dns");
-    let got = chase::resolve(
+    let got = resolver::resolve(
         &cfg(&d),
         names(&["www.shop.test", "direct.test", "gone.test", "mute.test"]),
     )
@@ -94,10 +94,10 @@ async fn resolve_follows_chains_and_retries_lost_names() {
     assert_eq!(by("direct.test").addrs, [ip([9, 9, 9, 7])]);
     assert_eq!(by("gone.test").rcode, i64::from(wire::NXDOMAIN));
     assert!(!by("gone.test").answered());
-    assert_eq!(by("mute.test").rcode, chase::TIMEOUT);
-    assert!(chase::public(&ip([9, 9, 9, 9])));
-    assert!(!chase::public(&ip([100, 64, 0, 1])));
-    assert!(!chase::public(&ip([127, 0, 0, 1])));
+    assert_eq!(by("mute.test").rcode, resolver::TIMEOUT);
+    assert!(resolver::public(&ip([9, 9, 9, 9])));
+    assert!(!resolver::public(&ip([100, 64, 0, 1])));
+    assert!(!resolver::public(&ip([127, 0, 0, 1])));
 }
 
 #[tokio::test]
@@ -117,12 +117,12 @@ async fn lookup_returns_records_of_the_asked_type() {
     .await
     .expect("dns");
     let c = cfg(&d);
-    let txt = chase::lookup(&c, &names(&["t.test", "none.test"]), wire::TXT)
+    let txt = resolver::lookup(&c, &names(&["t.test", "none.test"]), wire::TXT)
         .await
         .expect("txt");
     assert_eq!(txt["t.test"], [Data::Txt(vec!["v=spf1 -all".into()])]);
     assert!(!txt.contains_key("none.test"));
-    let https = chase::lookup(&c, &names(&["h.test"]), wire::HTTPS)
+    let https = resolver::lookup(&c, &names(&["h.test"]), wire::HTTPS)
         .await
         .expect("https");
     assert_eq!(
@@ -133,7 +133,7 @@ async fn lookup_returns_records_of_the_asked_type() {
             alpn: vec!["h2".into(), "h3".into()],
         }]
     );
-    let six = chase::lookup(&c, &names(&["six.test"]), wire::AAAA)
+    let six = resolver::lookup(&c, &names(&["six.test"]), wire::AAAA)
         .await
         .expect("aaaa");
     assert_eq!(
@@ -153,7 +153,7 @@ async fn wildcard_controls_separate_real_and_wild_names() {
     .await
     .expect("dns");
     let c = cfg(&d);
-    let hosts = chase::resolve(
+    let hosts = resolver::resolve(
         &c,
         names(&[
             "a.wild.test",
@@ -164,12 +164,12 @@ async fn wildcard_controls_separate_real_and_wild_names() {
     )
     .await
     .expect("resolve");
-    let v = wild::check(&c, &hosts).await.expect("check");
-    assert_eq!(v["a.wild.test"], wild::Verdict::Wild);
-    assert_eq!(v["api.real.test"], wild::Verdict::Real);
-    assert_eq!(v["nx.real.test"], wild::Verdict::Nx);
-    assert_eq!(wild::Verdict::Wild.as_str(), "WILD");
-    assert_eq!(wild::Verdict::Real.as_str(), "REAL");
+    let v = wildcard::check(&c, &hosts).await.expect("check");
+    assert_eq!(v["a.wild.test"], wildcard::Verdict::Wild);
+    assert_eq!(v["api.real.test"], wildcard::Verdict::Real);
+    assert_eq!(v["nx.real.test"], wildcard::Verdict::Nx);
+    assert_eq!(wildcard::Verdict::Wild.as_str(), "WILD");
+    assert_eq!(wildcard::Verdict::Real.as_str(), "REAL");
 }
 
 #[tokio::test]

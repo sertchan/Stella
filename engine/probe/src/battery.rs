@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use stella_core::progress::{self, Progress};
 use stella_net::http::{Conn, Resp};
-use stella_net::limit::Limiter;
+use stella_net::limiter::Limiter;
 use stella_net::tls::{self, Fail};
 use tokio::net::TcpStream;
 use tokio::sync::OwnedSemaphorePermit;
@@ -306,7 +306,7 @@ impl Prober {
 
     pub async fn probe(&self, host: &str, ip: IpAddr, battery: Battery) -> HostProbe {
         let started = Instant::now();
-        let mut rng = stella_core::rng::Rng::seeded();
+        let mut rng = stella_core::random::Rng::seeded();
         let random_path = format!("/{}", rng.label());
         let mut s = Session {
             prober: self,

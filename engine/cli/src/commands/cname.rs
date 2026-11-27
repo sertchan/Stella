@@ -1,11 +1,11 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use crate::pipeline;
 use anyhow::Result;
 use rusqlite::params;
 use rustc_hash::FxHashMap;
 use std::time::{Duration, Instant};
 use stella_core::store::Row;
-use stella_dns::engine::Config;
+use stella_dns::transport::Config;
 use stella_net::client::{self, Options};
 use stella_probe::rules::REVIEW;
 use stella_sources::cname::{self, Tally, Vendor};
@@ -23,7 +23,7 @@ pub struct Learn {
     pub min_lift: f64,
 }
 
-async fn seeds(ctx: &Ctx) -> Result<Vec<Vendor>> {
+async fn seeds(ctx: &Context) -> Result<Vec<Vendor>> {
     let c = client::build(&Options {
         timeout: Duration::from_secs(120),
         ..Options::default()
@@ -115,7 +115,7 @@ async fn risky() -> Result<Vec<String>> {
     Ok(out)
 }
 
-pub async fn learn(ctx: &mut Ctx, dns: &Config, args: &Learn) -> Result<usize> {
+pub async fn learn(ctx: &mut Context, dns: &Config, args: &Learn) -> Result<usize> {
     let started = Instant::now();
     let seeded = seeds(ctx).await?;
     let mut listed: Vec<String> = ctx.known().domains().map(str::to_string).collect();
@@ -200,7 +200,7 @@ pub async fn learn(ctx: &mut Ctx, dns: &Config, args: &Learn) -> Result<usize> {
     Ok(all.len())
 }
 
-fn vendors(ctx: &Ctx) -> Result<FxHashMap<String, Vendor>> {
+fn vendors(ctx: &Context) -> Result<FxHashMap<String, Vendor>> {
     Ok(ctx
         .store
         .rows("SELECT suffix, listed, background, source FROM vendor")?
@@ -239,7 +239,7 @@ fn why(link: &str, v: &Vendor) -> String {
     }
 }
 
-pub fn matches(ctx: &Ctx) -> Result<Vec<(String, String)>> {
+pub fn matches(ctx: &Context) -> Result<Vec<(String, String)>> {
     let vendors = vendors(ctx)?;
     if vendors.is_empty() {
         eprintln!("cname vendors: none stored, run stella source cname-vendors first");
@@ -286,7 +286,7 @@ pub fn matches(ctx: &Ctx) -> Result<Vec<(String, String)>> {
     Ok(found)
 }
 
-pub fn learned_age(ctx: &Ctx) -> Option<i64> {
+pub fn learned_age(ctx: &Context) -> Option<i64> {
     let at: i64 = ctx
         .store
         .rows("SELECT max(at) FROM done WHERE kind = 'cname-learn'")

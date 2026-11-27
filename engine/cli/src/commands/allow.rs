@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::{Result, bail};
 use rusqlite::params;
 use stella_core::store::Row;
@@ -25,7 +25,7 @@ enum Cmd {
     List,
 }
 
-pub fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub fn run(ctx: &mut Context, args: Args) -> Result<()> {
     match args.cmd {
         Cmd::Add { host, reason } => {
             let Some(host) = stella_core::name::normalize(&host) else {

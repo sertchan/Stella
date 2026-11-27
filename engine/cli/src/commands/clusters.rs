@@ -1,7 +1,7 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
-use stella_core::shape;
+use stella_core::digest;
 use stella_probe::battery::LITE;
 
 #[derive(clap::Args)]
@@ -175,8 +175,8 @@ fn token(r: &ProbeRow) -> String {
     } else {
         format!(
             "h{:016x}.{}",
-            shape::fnv1a(shape::masked_without_host(r.head.as_bytes(), &r.host).as_bytes()),
-            shape::length_bucket(r.length)
+            digest::fnv1a(digest::masked_without_host(r.head.as_bytes(), &r.host).as_bytes()),
+            digest::length_bucket(r.length)
         )
     };
     format!("{}:{ctype}:{body}", r.status)
@@ -308,7 +308,7 @@ pub fn cluster_with(
             Cluster {
                 id: format!(
                     "{:08x}",
-                    shape::fnv1a(format!("{}|{print}", slots.join("|")).as_bytes()) as u32
+                    digest::fnv1a(format!("{}|{print}", slots.join("|")).as_bytes()) as u32
                 ),
                 shape: if print.is_empty() {
                     describe(&slots)
@@ -325,7 +325,7 @@ pub fn cluster_with(
     out
 }
 
-fn load(ctx: &Ctx) -> Result<Vec<ProbeRow>> {
+fn load(ctx: &Context) -> Result<Vec<ProbeRow>> {
     let mut stmt = ctx.store.conn.prepare(
         "SELECT host, path, status, ctype, length, head, digest FROM probe WHERE path IN ('/', '/healthy', '/i', '?random')",
     )?;
@@ -343,7 +343,7 @@ fn load(ctx: &Ctx) -> Result<Vec<ProbeRow>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-pub fn build(ctx: &Ctx, loose: bool, tls: bool) -> Result<Vec<Cluster>> {
+pub fn build(ctx: &Context, loose: bool, tls: bool) -> Result<Vec<Cluster>> {
     let rows = load(ctx)?;
     let prints: FxHashMap<String, String> = if tls {
         ctx.store
@@ -391,7 +391,7 @@ pub fn build(ctx: &Ctx, loose: bool, tls: bool) -> Result<Vec<Cluster>> {
     }))
 }
 
-pub fn summary(ctx: &Ctx, min_zones: usize, control_zones: usize) -> Result<String> {
+pub fn summary(ctx: &Context, min_zones: usize, control_zones: usize) -> Result<String> {
     let clusters = build(ctx, true, false)?;
     let mut parts: Vec<String> = Vec::new();
     for label in [Label::Candidate, Label::New] {
@@ -412,7 +412,7 @@ pub fn summary(ctx: &Ctx, min_zones: usize, control_zones: usize) -> Result<Stri
     Ok(parts.join(" "))
 }
 
-pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
+pub fn run(ctx: &Context, args: Args) -> Result<()> {
     let clusters = build(ctx, args.loose, args.tls)?;
     let rows = load(ctx)?;
     let mut out = Out::new();
@@ -482,7 +482,7 @@ mod tests {
             ctype: ctype.into(),
             length: body.len() as i64,
             head: body.into(),
-            digest: shape::digest(body.as_bytes(), host),
+            digest: digest::digest(body.as_bytes(), host),
         }
     }
 

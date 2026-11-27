@@ -26,7 +26,7 @@ impl State {
             "listed.test\ncdn-listed.test\n",
         )
         .expect("known");
-        crate::ctx::quiet(true);
+        crate::context::quiet(true);
         Self { dir }
     }
 
@@ -96,7 +96,7 @@ fn probe_row(host: &str, path: &str, addr: &str, status: i64, head: &str) -> Row
         cookies: s(""),
         length: head.len() as i64,
         head: s(head),
-        digest: stella_core::shape::digest(head.as_bytes(), host),
+        digest: stella_core::digest::digest(head.as_bytes(), host),
     }
 }
 
@@ -358,11 +358,11 @@ fn store_commands_read_and_update_the_database() {
     st.stella(&["clusters"]);
     st.stella(&["clusters", "--all", "--flat", "--min-zones", "2"]);
     st.stella(&["clusters", "--loose", "--tls", "--min-zones", "2", "--all"]);
-    let ctx = crate::ctx::Ctx::open(stella_core::config::Paths {
+    let ctx = crate::context::Context::open(stella_core::config::Paths {
         state: st.dir.clone(),
     })
     .expect("ctx");
-    let id = crate::clusters::build(&ctx, false, false).expect("clusters")[0]
+    let id = crate::commands::clusters::build(&ctx, false, false).expect("clusters")[0]
         .id
         .clone();
     drop(ctx);
@@ -411,22 +411,22 @@ async fn pipeline_probes_writes_rows_and_drops_covered_hosts() {
     .await
     .expect("dns");
     let st = State::new("pipeline");
-    let mut ctx = crate::ctx::Ctx::open(stella_core::config::Paths {
+    let mut ctx = crate::context::Context::open(stella_core::config::Paths {
         state: st.dir.clone(),
     })
     .expect("ctx");
     let w = ctx.store.writer().expect("writer");
-    let cfg = stella_dns::engine::Config {
+    let cfg = stella_dns::transport::Config {
         servers: vec![dns.addr],
         ecs_server: dns.addr,
         timeout: Duration::from_millis(300),
-        ..stella_dns::engine::Config::default()
+        ..stella_dns::transport::Config::default()
     };
     let named = crate::pipeline::resolve(&mut ctx, &w, &cfg, vec![s("t.shop.test")], true)
         .await
         .expect("resolve");
     assert_eq!(named[0].res.addrs, [Ipv4Addr::LOCALHOST]);
-    let mut prober = stella_probe::battery::Prober::new(stella_net::limit::Limiter::new(8, 100));
+    let mut prober = stella_probe::battery::Prober::new(stella_net::limiter::Limiter::new(8, 100));
     prober.tls_port = tls.addr.port();
     prober.timeout = Duration::from_secs(2);
     let b = crate::pipeline::battery_for(&ctx, "t.shop.test", "auto");
@@ -689,7 +689,7 @@ fn mirror() -> Site {
     let gvl = r#"{"vendors":{"1":{"name":"Vendor","deviceStorageDisclosureUrl":"https://disclosures.vendor.test/d.json"}}}"#;
     let disclosure = r#"{"disclosures":[{"identifier":"uid","domains":["*.sync.vendor.test"]}],"domains":[{"domain":".pixel.vendor.test","use":"x"}]}"#;
     let entities = r#"[{"name":"Ad Co","category":"ad","domains":["*.adco.test","px.adco.test"]}]"#;
-    let nrd_path = stella_sources::nrd::url("2026-11-20")
+    let nrd_path = stella_sources::newly_registered::url("2026-11-20")
         .split_once("whoisds.com")
         .map(|(_, p)| p.to_string())
         .expect("nrd path");

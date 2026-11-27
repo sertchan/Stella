@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     fn survives_hostile_packets() {
-        let mut rng = stella_core::rng::Rng::seeded();
+        let mut rng = stella_core::random::Rng::seeded();
         let mut seeds: Vec<Vec<u8>> = Vec::new();
         for name in ["a.com", "x.y.example.org", "\\000.example.com"] {
             let mut q = Vec::new();

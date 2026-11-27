@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 use stella_core::config::{KNOWN_LIST_URL, KNOWN_LISTS, PSL_URL};
 use stella_net::client::{self, Options};
@@ -19,7 +19,7 @@ enum Cmd {
 
 const LIST_CAP: u64 = 512 * 1024 * 1024;
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     match args.cmd {
         Cmd::Sync => sync(ctx).await?,
         Cmd::Check => {
@@ -35,7 +35,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     Ok(())
 }
 
-pub async fn sync(ctx: &Ctx) -> Result<()> {
+pub async fn sync(ctx: &Context) -> Result<()> {
     let client = client::build(&Options::default())?;
     let n = client::download(&client, PSL_URL, &ctx.paths.psl(), LIST_CAP).await?;
     eprintln!("psl {n} bytes");
@@ -50,7 +50,7 @@ pub async fn sync(ctx: &Ctx) -> Result<()> {
     Ok(())
 }
 
-pub fn age(ctx: &Ctx) -> Option<std::time::Duration> {
+pub fn age(ctx: &Context) -> Option<std::time::Duration> {
     let path = ctx
         .paths
         .known()

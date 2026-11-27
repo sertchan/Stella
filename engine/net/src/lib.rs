@@ -1,6 +1,6 @@
 pub mod client;
 pub mod http;
-pub mod limit;
+pub mod limiter;
 pub mod tls;
 
 pub fn install_crypto() {

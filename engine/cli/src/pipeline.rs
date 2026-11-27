@@ -1,13 +1,13 @@
-use crate::ctx::Ctx;
+use crate::context::Context;
 use anyhow::Result;
 use rustc_hash::FxHashMap;
 use std::net::IpAddr;
 use std::time::Duration;
 use stella_core::store::{Row, Writer};
-use stella_dns::chase::{self, Resolved};
-use stella_dns::engine::Config;
-use stella_dns::wild::{self, Verdict};
-use stella_net::limit::Limiter;
+use stella_dns::resolver::{self, Resolved};
+use stella_dns::transport::Config;
+use stella_dns::wildcard::{self, Verdict};
+use stella_net::limiter::Limiter;
 use stella_probe::battery::{self, Battery, HostProbe, Prober, RANDOM};
 use stella_probe::rules::{self, Hit};
 
@@ -104,15 +104,15 @@ pub struct Named {
 }
 
 pub async fn resolve(
-    ctx: &mut Ctx,
+    ctx: &mut Context,
     w: &Writer,
     cfg: &Config,
     names: Vec<String>,
     check_wild: bool,
 ) -> Result<Vec<Named>> {
-    let resolved = chase::resolve(cfg, names).await?;
+    let resolved = resolver::resolve(cfg, names).await?;
     let verdicts = if check_wild {
-        wild::check(cfg, &resolved).await?
+        wildcard::check(cfg, &resolved).await?
     } else {
         FxHashMap::default()
     };
@@ -142,7 +142,7 @@ pub async fn resolve(
             wild: n.wild.map_or("", Verdict::as_str).to_string(),
             known: n.known.clone(),
         });
-        for a in r.addrs.iter().filter(|a| chase::public(a)) {
+        for a in r.addrs.iter().filter(|a| resolver::public(a)) {
             w.send(Row::Addr {
                 addr: a.to_string(),
                 host: r.host.clone(),
@@ -171,7 +171,7 @@ impl Found {
 }
 
 pub async fn covered_elsewhere(
-    ctx: &Ctx,
+    ctx: &Context,
     cfg: &Config,
     hosts: Vec<String>,
 ) -> Result<FxHashMap<String, String>> {
@@ -194,7 +194,7 @@ pub async fn covered_elsewhere(
 }
 
 pub async fn drop_covered(
-    ctx: &Ctx,
+    ctx: &Context,
     w: &Writer,
     cfg: &Config,
     found: &mut [Found],
@@ -233,7 +233,7 @@ pub fn join_addrs(addrs: &[std::net::Ipv4Addr]) -> String {
         .join(",")
 }
 
-pub fn battery_for(ctx: &Ctx, host: &str, mode: &str) -> Battery {
+pub fn battery_for(ctx: &Context, host: &str, mode: &str) -> Battery {
     match mode {
         "full" => Battery::Full,
         "lite" => Battery::Lite,
@@ -247,7 +247,7 @@ pub fn battery_for(ctx: &Ctx, host: &str, mode: &str) -> Battery {
 }
 
 pub async fn probe(
-    ctx: &Ctx,
+    ctx: &Context,
     w: &Writer,
     prober: &Prober,
     items: Vec<(String, IpAddr, Battery)>,
@@ -288,7 +288,7 @@ pub async fn probe(
                 cookies: r.cookies.join(","),
                 length: r.length,
                 head: battery::head(&r.body, if *path == RANDOM { 300 } else { 160 }),
-                digest: stella_core::shape::digest(&r.body, &p.host),
+                digest: stella_core::digest::digest(&r.body, &p.host),
             });
         }
         if !p.tls.is_empty() {

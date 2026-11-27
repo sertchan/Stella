@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rusqlite::Connection;
 use rustc_hash::{FxHashMap, FxHashSet};
-use stella_core::psl::Psl;
+use stella_core::public_suffix::Psl;
 
 pub fn learn(conn: &Connection, psl: &Psl, min_zones: usize) -> Result<Vec<(String, usize)>> {
     let mut stmt = conn.prepare("SELECT DISTINCT host FROM hit WHERE verdict = 'PICK'")?;

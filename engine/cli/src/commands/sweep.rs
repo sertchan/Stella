@@ -1,10 +1,10 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, Instant};
 use stella_core::store::Row;
-use stella_net::limit::Limiter;
+use stella_net::limiter::Limiter;
 use stella_net::tls;
 use tokio::task::JoinSet;
 
@@ -74,7 +74,7 @@ pub fn blocks(
     out
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     let started = Instant::now();
     let picks = ctx
         .store
@@ -143,7 +143,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         .iter()
         .map(|h| ctx.regdom(h))
         .chain(
-            crate::mates::SHARED_DNS
+            crate::commands::mates::SHARED_DNS
                 .iter()
                 .map(std::string::ToString::to_string),
         )

@@ -1,4 +1,4 @@
-use crate::deob::{self, URL_WITH_PATH};
+use crate::deobfuscate::{self, URL_WITH_PATH};
 use anyhow::Result;
 use rayon::prelude::*;
 use regex::Regex;
@@ -128,7 +128,7 @@ pub fn scan(path: &Path) -> Result<Outcome> {
                 }
             }
             let dex = name.to_ascii_lowercase().ends_with(".dex");
-            deob::scan(data, dex, &mut |method, url| {
+            deobfuscate::scan(data, dex, &mut |method, url| {
                 v.push(Found {
                     method: method.into(),
                     url,

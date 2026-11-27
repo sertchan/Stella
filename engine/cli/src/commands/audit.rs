@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 use rusqlite::params;
 use rustc_hash::FxHashMap;
@@ -44,7 +44,7 @@ pub fn token() -> Option<String> {
     (out.status.success() && !t.is_empty()).then_some(t)
 }
 
-fn mark(ctx: &Ctx, kind: &str, key: &str) -> Result<()> {
+fn mark(ctx: &Context, kind: &str, key: &str) -> Result<()> {
     ctx.store.conn.execute(
         "INSERT OR REPLACE INTO done VALUES(?1, ?2, ?3)",
         params![kind, key, stella_core::now()],
@@ -52,7 +52,7 @@ fn mark(ctx: &Ctx, kind: &str, key: &str) -> Result<()> {
     Ok(())
 }
 
-async fn sync_issues(ctx: &Ctx, c: &reqwest::Client) -> Result<()> {
+async fn sync_issues(ctx: &Context, c: &reqwest::Client) -> Result<()> {
     let tok = token();
     if tok.is_none() {
         eprintln!(
@@ -109,7 +109,7 @@ async fn sync_issues(ctx: &Ctx, c: &reqwest::Client) -> Result<()> {
     Ok(())
 }
 
-async fn sync_exceptions(ctx: &Ctx, c: &reqwest::Client, max_age: i64) -> Result<()> {
+async fn sync_exceptions(ctx: &Context, c: &reqwest::Client, max_age: i64) -> Result<()> {
     let fresh_after = stella_core::now() - max_age;
     for (name, url, kind) in EXCEPTION_LISTS {
         let fresh = ctx
@@ -149,7 +149,7 @@ async fn sync_exceptions(ctx: &Ctx, c: &reqwest::Client, max_age: i64) -> Result
     Ok(())
 }
 
-pub async fn sync(ctx: &Ctx, list_age_hours: i64) -> Result<()> {
+pub async fn sync(ctx: &Context, list_age_hours: i64) -> Result<()> {
     let c = client::build(&Options {
         timeout: Duration::from_secs(120),
         ..Options::default()
@@ -222,7 +222,7 @@ fn judge(host: &str, issues: &Issues, exc: &Exceptions) -> (&'static str, Vec<St
 }
 
 fn load<T>(
-    ctx: &Ctx,
+    ctx: &Context,
     sql: &str,
     f: impl Fn(Vec<String>) -> Option<(String, T)>,
 ) -> Result<FxHashMap<String, Vec<T>>> {
@@ -235,7 +235,7 @@ fn load<T>(
     Ok(m)
 }
 
-pub fn apply(ctx: &Ctx) -> Result<(usize, usize)> {
+pub fn apply(ctx: &Context) -> Result<(usize, usize)> {
     let issues: Issues = load(
         ctx,
         "SELECT host, number, kind, outcome FROM issue WHERE outcome != 'void'",
@@ -293,7 +293,7 @@ pub fn apply(ctx: &Ctx) -> Result<(usize, usize)> {
     Ok((lowered, noted))
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     let started = Instant::now();
     if !args.no_sync {
         sync(ctx, args.list_age_hours).await?;

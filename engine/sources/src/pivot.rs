@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rusqlite::Connection;
 use rustc_hash::FxHashSet;
-use stella_core::psl::Psl;
+use stella_core::public_suffix::Psl;
 
 pub struct Pivot {
     pub neighbours: Vec<(String, String, String)>,

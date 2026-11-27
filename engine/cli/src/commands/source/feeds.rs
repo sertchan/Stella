@@ -1,10 +1,12 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::time::{Duration, Instant};
 use stella_core::store::Row;
 use stella_net::client::{self, Options};
-use stella_sources::{adtech, code, extension, httparchive, nrd, scripts, sdk, vendors};
+use stella_sources::{
+    adtech, extension, github_code, httparchive, newly_registered, scripts, sdk, vendors,
+};
 use tokio::task::JoinSet;
 
 const PREBID_CAP: u64 = 400 * 1024 * 1024;
@@ -49,7 +51,7 @@ async fn each<T: Send + 'static, F, Fut>(
     }
 }
 
-pub async fn adtech(ctx: &mut Ctx, par: usize, min_intermediary: usize) -> Result<()> {
+pub async fn adtech(ctx: &mut Context, par: usize, min_intermediary: usize) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("adstxt")?;
     let sites: Vec<String> = ctx
@@ -167,7 +169,7 @@ pub async fn adtech(ctx: &mut Ctx, par: usize, min_intermediary: usize) -> Resul
     Ok(())
 }
 
-pub async fn prebid(ctx: &mut Ctx) -> Result<()> {
+pub async fn prebid(ctx: &mut Context) -> Result<()> {
     let c = client::build(&Options {
         timeout: Duration::from_secs(600),
         ..Options::default()
@@ -200,7 +202,7 @@ pub async fn prebid(ctx: &mut Ctx) -> Result<()> {
     Ok(())
 }
 
-pub async fn cmp(ctx: &mut Ctx, par: usize) -> Result<()> {
+pub async fn cmp(ctx: &mut Context, par: usize) -> Result<()> {
     let started = Instant::now();
     let c = web(20)?;
     let gvl = client::fetch(&c, vendors::GVL, GVL_CAP).await?;
@@ -252,7 +254,7 @@ pub async fn cmp(ctx: &mut Ctx, par: usize) -> Result<()> {
     Ok(())
 }
 
-pub async fn scripts(ctx: &mut Ctx, par: usize) -> Result<()> {
+pub async fn scripts(ctx: &mut Context, par: usize) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("script")?;
     let urls: Vec<String> = ctx
@@ -370,7 +372,7 @@ pub async fn scripts(ctx: &mut Ctx, par: usize) -> Result<()> {
     Ok(())
 }
 
-pub async fn extract(ctx: &mut Ctx) -> Result<()> {
+pub async fn extract(ctx: &mut Context) -> Result<()> {
     let c = web(30)?;
     let known = ctx.known();
     let mut out = Out::new();
@@ -413,11 +415,11 @@ pub async fn extract(ctx: &mut Ctx) -> Result<()> {
     Ok(())
 }
 
-pub async fn passive(ctx: &mut Ctx, par: usize) -> Result<()> {
+pub async fn passive(ctx: &mut Context, par: usize) -> Result<()> {
     passive_zones(ctx, ctx.names(), par).await
 }
 
-pub async fn passive_zones(ctx: &mut Ctx, input: Vec<String>, par: usize) -> Result<()> {
+pub async fn passive_zones(ctx: &mut Context, input: Vec<String>, par: usize) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("passive")?;
     let zones: Vec<String> = input.into_iter().filter(|z| !done.contains(z)).collect();
@@ -482,7 +484,7 @@ pub async fn passive_zones(ctx: &mut Ctx, input: Vec<String>, par: usize) -> Res
     Ok(())
 }
 
-fn real_host(ctx: &Ctx, h: &str) -> bool {
+fn real_host(ctx: &Context, h: &str) -> bool {
     ctx.psl.listed_tld(h) && ctx.psl.regdom(h).is_some()
 }
 
@@ -502,7 +504,7 @@ async fn extension_file(c: &reqwest::Client, store: &extension::Store) -> Option
     (p.status == 200 && !p.body.is_empty()).then_some(p.body)
 }
 
-pub async fn extensions(ctx: &mut Ctx, par: usize) -> Result<()> {
+pub async fn extensions(ctx: &mut Context, par: usize) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("extension")?;
     let keys: Vec<String> = ctx
@@ -630,7 +632,7 @@ async fn sdk_hosts(
     None
 }
 
-pub async fn sdks(ctx: &mut Ctx, par: usize) -> Result<()> {
+pub async fn sdks(ctx: &mut Context, par: usize) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("sdk")?;
     let keys: Vec<String> = ctx
@@ -704,17 +706,17 @@ pub async fn sdks(ctx: &mut Ctx, par: usize) -> Result<()> {
 const CODE_FILE_CAP: usize = 2 * 1024 * 1024;
 const SEARCH_SPACING: Duration = Duration::from_secs(7);
 
-pub async fn github_code(ctx: &mut Ctx, par: usize) -> Result<()> {
+pub async fn github_code(ctx: &mut Context, par: usize) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("github-code")?;
-    let tok = crate::audit::token();
+    let tok = crate::commands::audit::token();
     if tok.is_none() {
         anyhow::bail!("code search needs a GitHub token from GH_TOKEN or gh auth");
     }
     let c = web(60)?;
     let w = ctx.store.writer()?;
     let mut files: FxHashMap<String, String> = FxHashMap::default();
-    let queries: Vec<&str> = code::QUERIES
+    let queries: Vec<&str> = github_code::QUERIES
         .iter()
         .copied()
         .filter(|q| !done.contains(*q))
@@ -723,9 +725,11 @@ pub async fn github_code(ctx: &mut Ctx, par: usize) -> Result<()> {
         if i > 0 {
             tokio::time::sleep(SEARCH_SPACING).await;
         }
-        match stella_sources::audit::github_get(&c, &code::search_url(q), tok.as_deref()).await {
+        match stella_sources::audit::github_get(&c, &github_code::search_url(q), tok.as_deref())
+            .await
+        {
             Ok(body) => {
-                for u in code::raw_urls(&body) {
+                for u in github_code::raw_urls(&body) {
                     files.entry(u).or_insert_with(|| (*q).to_string());
                 }
                 w.send(Row::Done {
@@ -793,13 +797,13 @@ const SDK_LINKS_JS: &str = r#"JSON.stringify(Array.from(document.querySelectorAl
 const SDK_TEXT_JS: &str = "(document.body && document.body.innerText) || \"\"";
 
 async fn links(b: &stella_crawl::cdp::Browser, url: &str, part: &str) -> Vec<String> {
-    let Ok(v) = stella_crawl::crawl::render(b, url, SDK_INDEX_WAIT, SDK_LINKS_JS).await else {
+    let Ok(v) = stella_crawl::crawler::render(b, url, SDK_INDEX_WAIT, SDK_LINKS_JS).await else {
         return Vec::new();
     };
     sdk::index_links(&v, SDK_INDEX, part)
 }
 
-pub async fn sdk_index(ctx: &mut Ctx, limit: usize) -> Result<()> {
+pub async fn sdk_index(ctx: &mut Context, limit: usize) -> Result<()> {
     let started = Instant::now();
     let launch = stella_crawl::cdp::Launch {
         headful: false,
@@ -851,7 +855,7 @@ pub async fn sdk_index(ctx: &mut Ctx, limit: usize) -> Result<()> {
         details.truncate(limit);
     }
     for d in &details {
-        if let Ok(text) = stella_crawl::crawl::render(&b, d, SDK_INDEX_WAIT, SDK_TEXT_JS).await {
+        if let Ok(text) = stella_crawl::crawler::render(&b, d, SDK_INDEX_WAIT, SDK_TEXT_JS).await {
             coords.extend(sdk::maven_coords(&text));
         }
     }
@@ -875,7 +879,7 @@ pub async fn sdk_index(ctx: &mut Ctx, limit: usize) -> Result<()> {
 
 const HTTPARCHIVE_CAP: usize = 64 * 1024 * 1024;
 
-pub async fn http_archive(ctx: &mut Ctx) -> Result<()> {
+pub async fn http_archive(ctx: &mut Context) -> Result<()> {
     let started = Instant::now();
     let c = web(120)?;
     let latest = client::fetch(&c, httparchive::LATEST, 1024 * 1024).await?;
@@ -915,18 +919,18 @@ pub async fn http_archive(ctx: &mut Ctx) -> Result<()> {
 
 const NRD_CAP: usize = 64 * 1024 * 1024;
 
-pub async fn nrd(ctx: &mut Ctx, date: Option<String>) -> Result<()> {
+pub async fn nrd(ctx: &mut Context, date: Option<String>) -> Result<()> {
     let started = Instant::now();
-    let date = date.unwrap_or_else(|| nrd::day_before(stella_core::now()));
-    if !nrd::valid_date(&date) {
+    let date = date.unwrap_or_else(|| newly_registered::day_before(stella_core::now()));
+    if !newly_registered::valid_date(&date) {
         anyhow::bail!("date must look like 2026-11-25, got {date}");
     }
     let c = web(120)?;
-    let p = client::fetch(&c, &nrd::url(&date), NRD_CAP).await?;
+    let p = client::fetch(&c, &newly_registered::url(&date), NRD_CAP).await?;
     if p.status != 200 {
         anyhow::bail!("newly registered domains for {date}: http {}", p.status);
     }
-    let list = nrd::domains(&p.body).ok_or_else(|| {
+    let list = newly_registered::domains(&p.body).ok_or_else(|| {
         anyhow::anyhow!("newly registered domains for {date}: no domain list in the archive")
     })?;
     let known = ctx.known();

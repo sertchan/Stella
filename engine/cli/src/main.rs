@@ -1,37 +1,16 @@
-mod allow;
-mod apk;
-mod audit;
-mod breakage;
-mod campaign;
-mod clusters;
-mod cname;
-mod crawl;
-mod ctx;
-mod feeds;
-mod fuse;
-mod geo;
-mod get;
-mod hunt;
-mod known;
-mod mates;
+mod commands;
+mod context;
 mod pipeline;
-mod pivot;
-mod probe;
-mod recheck;
-mod records;
-mod resolve;
-mod review;
-mod source;
-mod stats;
-mod sweep;
-mod twins;
-mod zone;
 
 #[cfg(test)]
 mod e2e;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use commands::{
+    allow, apk, audit, breakage, campaign, clusters, crawl, fuse, geo, get, hunt, known, mates,
+    pivot, probe, recheck, records, resolve, review, source, stats, sweep, twins, zone,
+};
 use stella_core::config::Paths;
 
 #[derive(Parser)]
@@ -162,7 +141,7 @@ fn run(cli: Cli) -> Result<()> {
         .enable_all()
         .build()?;
     rt.block_on(async move {
-        let mut ctx = ctx::Ctx::open(paths)?;
+        let mut ctx = context::Context::open(paths)?;
         ctx.input = cli.input;
         match cli.cmd {
             Cmd::Known(a) => known::run(&mut ctx, a).await,

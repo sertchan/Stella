@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -183,7 +183,7 @@ pub fn mates(
     out
 }
 
-pub fn zones(ctx: &Ctx) -> Result<Vec<String>> {
+pub fn zones(ctx: &Context) -> Result<Vec<String>> {
     let rows = edges(ctx)?;
     let pick_zones = pick_zones(ctx)?;
     let mut out: Vec<String> = mates(
@@ -202,7 +202,7 @@ pub fn zones(ctx: &Ctx) -> Result<Vec<String>> {
     Ok(out)
 }
 
-fn pick_zones(ctx: &Ctx) -> Result<FxHashSet<String>> {
+fn pick_zones(ctx: &Context) -> Result<FxHashSet<String>> {
     Ok(ctx
         .store
         .all("SELECT DISTINCT host FROM hit WHERE verdict = 'PICK'")?
@@ -211,7 +211,7 @@ fn pick_zones(ctx: &Ctx) -> Result<FxHashSet<String>> {
         .collect())
 }
 
-fn edges(ctx: &Ctx) -> Result<Vec<(String, String, String)>> {
+fn edges(ctx: &Context) -> Result<Vec<(String, String, String)>> {
     let mut rows: Vec<(String, String, String)> = ctx
         .store
         .rows("SELECT zone, kind, value FROM zonedns")?
@@ -234,7 +234,7 @@ fn edges(ctx: &Ctx) -> Result<Vec<(String, String, String)>> {
     Ok(rows)
 }
 
-pub fn run(ctx: &Ctx, args: &Args) -> Result<()> {
+pub fn run(ctx: &Context, args: &Args) -> Result<()> {
     let rows = edges(ctx)?;
     let pick_zones = pick_zones(ctx)?;
     let found = mates(

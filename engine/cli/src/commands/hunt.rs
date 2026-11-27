@@ -1,12 +1,12 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use crate::pipeline::{self, DnsArgs, ProbeArgs};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::net::IpAddr;
 use std::time::Instant;
 use stella_core::store::Row;
-use stella_dns::chase;
-use stella_dns::wild::Verdict;
+use stella_dns::resolver;
+use stella_dns::wildcard::Verdict;
 use stella_probe::battery::Battery;
 
 #[derive(clap::Args)]
@@ -63,12 +63,12 @@ struct Round {
     pinned: Vec<(String, IpAddr)>,
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     let input = ctx.names();
     hunt(ctx, &args, input).await.map(|_| ())
 }
 
-pub async fn hunt(ctx: &mut Ctx, args: &Args, input: Vec<String>) -> Result<usize> {
+pub async fn hunt(ctx: &mut Context, args: &Args, input: Vec<String>) -> Result<usize> {
     let started = Instant::now();
     let w = ctx.store.writer()?;
     let cfg = args.dns.config();
@@ -106,7 +106,7 @@ pub async fn hunt(ctx: &mut Ctx, args: &Args, input: Vec<String>) -> Result<usiz
         let mut live = 0usize;
         let candidates = named.into_iter().filter_map(|n| {
             resolved_before.insert(n.res.host.clone());
-            let addr = n.res.addrs.iter().find(|a| chase::public(a))?;
+            let addr = n.res.addrs.iter().find(|a| resolver::public(a))?;
             let ok = n.known.is_empty() && n.wild != Some(Verdict::Wild);
             ok.then_some((n.res.host, IpAddr::V4(*addr)))
         });

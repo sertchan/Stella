@@ -1,7 +1,7 @@
 use std::time::Duration;
 use stella_crawl::breakage::{self, Case};
 use stella_crawl::cdp::{ANDROID_UA, Browser, Launch, Profile};
-use stella_crawl::crawl::{self, Options};
+use stella_crawl::crawler::{self, Options};
 use stella_testkit::http::{Http, Reply, Site};
 use tokio::sync::mpsc;
 
@@ -75,7 +75,7 @@ async fn crawl_records_requests_hooks_and_renders() {
     let b = Browser::launch(&launch, &work.join("profile"))
         .await
         .expect("chromium");
-    let page = crawl::visit(&b, &url, &options()).await;
+    let page = crawler::visit(&b, &url, &options()).await;
     assert!(page.error.is_none(), "{:?}", page.error);
     assert!(
         page.requests
@@ -90,13 +90,13 @@ async fn crawl_records_requests_hooks_and_renders() {
         "{:?}",
         page.hooks
     );
-    let title = crawl::render(&b, &url, Duration::from_secs(1), "document.title")
+    let title = crawler::render(&b, &url, Duration::from_secs(1), "document.title")
         .await
         .expect("render");
     assert_eq!(title, "Shop");
     b.close().await;
     let (tx, mut rx) = mpsc::channel(8);
-    crawl::run(vec![url.clone(), url.clone()], options(), &work, tx)
+    crawler::run(vec![url.clone(), url.clone()], options(), &work, tx)
         .await
         .expect("crawl run");
     let mut pages = 0;

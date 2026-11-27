@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 use stella_core::store::Row;
 
@@ -17,7 +17,7 @@ pub struct Args {
     with_review: bool,
 }
 
-pub fn run(ctx: &mut Ctx, args: &Args) -> Result<()> {
+pub fn run(ctx: &mut Context, args: &Args) -> Result<()> {
     let p =
         stella_sources::pivot::collect(&ctx.store.conn, &ctx.psl, args.max_ip, args.with_review)?;
     let w = ctx.store.writer()?;

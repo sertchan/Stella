@@ -1,10 +1,10 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use crate::pipeline::DnsArgs;
 use anyhow::Result;
 use rustc_hash::FxHashSet;
 use std::net::Ipv6Addr;
 use stella_core::store::Row;
-use stella_dns::chase;
+use stella_dns::resolver;
 use stella_dns::wire::{self, Data};
 
 #[derive(clap::Args)]
@@ -45,7 +45,7 @@ pub fn svcb_target(owner: &str, data: &Data) -> Option<String> {
     (!t.is_empty() && !t.eq_ignore_ascii_case(owner)).then(|| t.to_ascii_lowercase())
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     let mut hosts: Vec<String> = if args.picks {
         ctx.store
             .all("SELECT DISTINCT host FROM hit WHERE verdict = 'PICK'")?
@@ -61,7 +61,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     let mut out = Out::new();
     let known = ctx.known();
     let (mut v6, mut targets, mut covered) = (0usize, 0usize, 0usize);
-    for (host, data) in chase::lookup(&cfg, &hosts, wire::AAAA).await? {
+    for (host, data) in resolver::lookup(&cfg, &hosts, wire::AAAA).await? {
         for d in data {
             if let Data::Aaaa(a) = d
                 && global_v6(&a)
@@ -74,7 +74,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             }
         }
     }
-    for (host, data) in chase::lookup(&cfg, &hosts, wire::HTTPS).await? {
+    for (host, data) in resolver::lookup(&cfg, &hosts, wire::HTTPS).await? {
         for t in data.iter().filter_map(|d| svcb_target(&host, d)) {
             targets += 1;
             let label = known.labels(known.chain_mask(std::iter::once(t.as_str())));
@@ -104,14 +104,14 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
                 value,
             });
         };
-        for (zone, data) in chase::lookup(&cfg, &zones, wire::NS).await? {
+        for (zone, data) in resolver::lookup(&cfg, &zones, wire::NS).await? {
             for d in data {
                 if let Data::Name(ns) = d {
                     send(&zone, "ns", ns.trim_end_matches('.').to_ascii_lowercase());
                 }
             }
         }
-        for (zone, data) in chase::lookup(&cfg, &zones, wire::SOA).await? {
+        for (zone, data) in resolver::lookup(&cfg, &zones, wire::SOA).await? {
             for d in data {
                 if let Data::Soa { mname, rname } = d {
                     send(
@@ -127,7 +127,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
                 }
             }
         }
-        for (zone, data) in chase::lookup(&cfg, &zones, wire::TXT).await? {
+        for (zone, data) in resolver::lookup(&cfg, &zones, wire::TXT).await? {
             for d in data {
                 if let Data::Txt(parts) = d
                     && let Some(token) = verification(&parts.concat())

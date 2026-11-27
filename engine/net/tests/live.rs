@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use stella_net::client::{self, Options};
 use stella_net::http::Conn;
-use stella_net::limit::Limiter;
+use stella_net::limiter::Limiter;
 use stella_net::tls::{self, Fail};
 use stella_testkit::http::{Http, Reply, Site};
 use tokio::net::TcpListener;

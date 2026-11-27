@@ -1,11 +1,11 @@
 pub mod config;
+pub mod digest;
 pub mod known;
 pub mod md5;
 pub mod name;
 pub mod progress;
-pub mod psl;
-pub mod rng;
-pub mod shape;
+pub mod public_suffix;
+pub mod random;
 pub mod store;
 pub mod token;
 

@@ -1,8 +1,8 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 use std::time::{Duration, Instant};
 use stella_core::store::Row;
-use stella_crawl::crawl::{self, Options};
+use stella_crawl::crawler::{self, Options};
 use stella_crawl::score::Scorer;
 
 #[derive(clap::Args)]
@@ -76,7 +76,7 @@ fn url_of(raw: &str) -> Option<String> {
     stella_core::name::normalize(raw).map(|d| format!("https://{d}/"))
 }
 
-pub async fn crawl(ctx: &mut Ctx, args: CrawlArgs) -> Result<()> {
+pub async fn crawl(ctx: &mut Context, args: CrawlArgs) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("crawl")?;
     let urls: Vec<String> = ctx
@@ -101,7 +101,7 @@ pub async fn crawl(ctx: &mut Ctx, args: CrawlArgs) -> Result<()> {
     };
     let work = ctx.paths.cache().join("crawl");
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    let runner = tokio::spawn(async move { crawl::run(urls, opts, &work, tx).await });
+    let runner = tokio::spawn(async move { crawler::run(urls, opts, &work, tx).await });
     let w = ctx.store.writer()?;
     let mut out = Out::new();
     let mut progress = stella_core::progress::Progress::new("crawl", total);
@@ -154,7 +154,7 @@ pub async fn crawl(ctx: &mut Ctx, args: CrawlArgs) -> Result<()> {
     Ok(())
 }
 
-pub fn score(ctx: &mut Ctx, args: &ScoreArgs) -> Result<()> {
+pub fn score(ctx: &mut Context, args: &ScoreArgs) -> Result<()> {
     let mut scorer = Scorer::default();
     {
         let mut stmt = ctx

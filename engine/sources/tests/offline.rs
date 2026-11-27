@@ -1,6 +1,6 @@
 use std::io::Write;
 use std::path::PathBuf;
-use stella_core::psl::Psl;
+use stella_core::public_suffix::Psl;
 use stella_core::store::{Row, Store};
 use stella_sources::{adtech, audit, container, pivot, toplist};
 

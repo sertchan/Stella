@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::time::Instant;
@@ -39,7 +39,7 @@ enum Cmd {
     Clean,
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     let started = Instant::now();
     let root = ctx.paths.apk();
     match args.cmd {

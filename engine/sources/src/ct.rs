@@ -110,7 +110,7 @@ pub async fn run(zones: Vec<(String, i64)>, par: usize, subzone: bool, tx: mpsc:
         let queue = queue.clone();
         let tx = tx.clone();
         workers.push(tokio::spawn(async move {
-            let mut rng = stella_core::rng::Rng::seeded();
+            let mut rng = stella_core::random::Rng::seeded();
             let mut client: Option<Client> = None;
             while let Some((zone, since)) = take(&queue) {
                 let mut result = Err(anyhow!("not tried"));

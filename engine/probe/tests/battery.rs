@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
-use stella_net::limit::Limiter;
+use stella_net::limiter::Limiter;
 use stella_net::tls::Fail;
 use stella_probe::battery::{self, Battery, FOLLOWED, FULL_EXTRA, LITE, Prober, RANDOM};
 use stella_probe::rules::{self, PICK};

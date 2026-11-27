@@ -1,5 +1,5 @@
-use crate::chase::follow;
-use crate::engine::{self, Config, Query};
+use crate::resolver::follow;
+use crate::transport::{self, Config, Query};
 use crate::wire;
 use anyhow::Result;
 use rustc_hash::FxHashMap;
@@ -47,7 +47,7 @@ pub async fn addresses(cfg: &Config, names: &[String]) -> Result<Vec<Placed>> {
             }
             let qs: Vec<Query> = want.keys().map(|n| query(n, *subnet)).collect();
             let mut next: FxHashMap<String, String> = FxHashMap::default();
-            engine::run(&cfg, &qs, |r| {
+            transport::run(&cfg, &qs, |r| {
                 let Some(m) = r.msg else { return };
                 let (chain, addrs) = follow(&m, &r.query.name);
                 let Some(host) = want.get(&r.query.name) else {
@@ -85,7 +85,7 @@ pub async fn chains(cfg: &Config, names: &[String]) -> Result<Vec<Seen>> {
     for (region, subnet) in REGIONS {
         let qs: Vec<Query> = names.iter().map(|n| query(n, *subnet)).collect();
         let mut seen: FxHashMap<String, (Vec<String>, bool)> = FxHashMap::default();
-        engine::run(&cfg, &qs, |r| {
+        transport::run(&cfg, &qs, |r| {
             if let Some(m) = r.msg {
                 let (chain, addrs) = follow(&m, &r.query.name);
                 if !chain.is_empty() {
@@ -105,7 +105,7 @@ pub async fn chains(cfg: &Config, names: &[String]) -> Result<Vec<Seen>> {
                 break;
             }
             let mut tails: FxHashMap<String, (Vec<String>, bool)> = FxHashMap::default();
-            engine::run(&cfg, &open, |r| {
+            transport::run(&cfg, &open, |r| {
                 if let Some(m) = r.msg {
                     let (chain, addrs) = follow(&m, &r.query.name);
                     tails.insert(r.query.name.clone(), (chain, addrs.is_empty()));

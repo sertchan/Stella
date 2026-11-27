@@ -2,7 +2,7 @@ use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::LazyLock;
 use stella_core::known::Known;
-use stella_core::psl::Psl;
+use stella_core::public_suffix::Psl;
 
 const COUNTRIES: &[&str] = &[
     "ad", "ae", "af", "ag", "ai", "al", "am", "ao", "ar", "as", "at", "au", "aw", "az", "ba", "bb",

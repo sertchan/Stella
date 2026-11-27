@@ -1,5 +1,5 @@
 use crate::cdp::{Browser, Display, Launch};
-use crate::crawl::{CONSENT_JS, FIRST_CONSENT, wait_for_memory};
+use crate::crawler::{CONSENT_JS, FIRST_CONSENT, wait_for_memory};
 use anyhow::{Result, anyhow};
 use rustc_hash::FxHashMap;
 use serde_json::{Value, json};

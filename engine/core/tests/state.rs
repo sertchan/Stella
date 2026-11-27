@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use stella_core::config::{self, Paths};
 use stella_core::known::Known;
 use stella_core::progress::{self, Progress};
-use stella_core::psl::Psl;
+use stella_core::public_suffix::Psl;
 use stella_core::store::{Row, Store};
 
 fn scratch(name: &str) -> PathBuf {

@@ -4,10 +4,10 @@ use std::io::{BufRead, BufReader, BufWriter, Stdout, Write};
 use std::path::PathBuf;
 use stella_core::config::{KNOWN_LISTS, Paths};
 use stella_core::known::Known;
-use stella_core::psl::Psl;
+use stella_core::public_suffix::Psl;
 use stella_core::store::Store;
 
-pub struct Ctx {
+pub struct Context {
     pub paths: Paths,
     pub input: Option<PathBuf>,
     pub store: Store,
@@ -16,7 +16,7 @@ pub struct Ctx {
     allow: std::cell::OnceCell<rustc_hash::FxHashMap<String, String>>,
 }
 
-impl Ctx {
+impl Context {
     pub fn open(paths: Paths) -> Result<Self> {
         paths.ensure()?;
         let store = Store::open(&paths.db())?;

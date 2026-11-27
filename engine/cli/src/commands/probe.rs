@@ -1,10 +1,10 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use crate::pipeline::{self, DnsArgs, ProbeArgs};
 use anyhow::Result;
 use rustc_hash::FxHashMap;
 use std::net::IpAddr;
 use std::time::Instant;
-use stella_dns::chase;
+use stella_dns::resolver;
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -20,7 +20,7 @@ pub struct Args {
     battery: String,
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     let started = Instant::now();
     let w = ctx.store.writer()?;
     let mut pinned: Vec<(String, IpAddr)> = Vec::new();
@@ -37,7 +37,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     if !unresolved.is_empty() {
         let res = pipeline::resolve(ctx, &w, &args.dns.config(), unresolved, false).await?;
         for r in res {
-            if let Some(a) = r.res.addrs.iter().find(|a| chase::public(a)) {
+            if let Some(a) = r.res.addrs.iter().find(|a| resolver::public(a)) {
                 pinned.push((r.res.host, IpAddr::V4(*a)));
             }
         }

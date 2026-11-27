@@ -1,4 +1,4 @@
-use crate::chase;
+use crate::resolver;
 use crate::wire::{self, Message};
 use anyhow::Result;
 use rustc_hash::FxHashMap;
@@ -18,7 +18,7 @@ impl Stub {
     pub async fn new() -> Result<Self> {
         Ok(Self {
             sock: UdpSocket::bind("0.0.0.0:0").await?,
-            id: stella_core::rng::Rng::seeded().next_u64() as u16,
+            id: stella_core::random::Rng::seeded().next_u64() as u16,
             buf: Vec::with_capacity(512),
             rx: vec![0u8; 4096],
         })
@@ -92,7 +92,7 @@ pub async fn lookup_a_with(servers: &[SocketAddr], name: &str) -> Vec<Ipv4Addr> 
             }
             continue;
         }
-        let (chain, addrs) = chase::follow(&m, &target);
+        let (chain, addrs) = resolver::follow(&m, &target);
         if !addrs.is_empty() {
             if let Ok(mut c) = CACHE.lock() {
                 c.insert(key, addrs.clone());

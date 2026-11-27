@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use crate::pipeline::DnsArgs;
 use anyhow::Result;
 use std::time::{Duration, Instant};
@@ -24,7 +24,7 @@ pub struct Args {
     walk_max: usize,
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("zone")?;
     let zones: Vec<String> = ctx

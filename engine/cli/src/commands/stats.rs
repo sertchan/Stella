@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 
 const YIELD: &str = "
@@ -17,7 +17,7 @@ LEFT JOIN p ON p.host = o.host
 LEFT JOIN h ON h.host = o.host
 GROUP BY o.source";
 
-pub fn table(ctx: &Ctx) -> Result<Vec<Vec<String>>> {
+pub fn table(ctx: &Context) -> Result<Vec<Vec<String>>> {
     let mut rows: Vec<(String, [i64; 5])> = ctx
         .store
         .rows(YIELD)?
@@ -73,7 +73,7 @@ pub struct Args {
     last: usize,
 }
 
-pub fn runs(ctx: &Ctx, last: usize) -> Result<Vec<Vec<String>>> {
+pub fn runs(ctx: &Context, last: usize) -> Result<Vec<Vec<String>>> {
     ctx.store.rows(&format!(
         "SELECT datetime(started, 'unixepoch'), seq, stage, printf('%.1f', secs), detail FROM run
          WHERE started IN (SELECT DISTINCT started FROM run ORDER BY started DESC LIMIT {last})
@@ -81,7 +81,7 @@ pub fn runs(ctx: &Ctx, last: usize) -> Result<Vec<Vec<String>>> {
     ))
 }
 
-pub fn run(ctx: &Ctx, args: &Args) -> Result<()> {
+pub fn run(ctx: &Context, args: &Args) -> Result<()> {
     let mut out = Out::new();
     let rows = if args.runs {
         runs(ctx, args.last)?

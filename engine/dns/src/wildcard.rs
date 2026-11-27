@@ -1,9 +1,9 @@
-use crate::chase::{self, Resolved};
-use crate::engine::Config;
+use crate::resolver::{self, Resolved};
+use crate::transport::Config;
 use crate::wire;
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
-use stella_core::rng::Rng;
+use stella_core::random::Rng;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -87,7 +87,7 @@ pub async fn check(cfg: &Config, hosts: &[Resolved]) -> Result<FxHashMap<String,
         }
     }
     let names: Vec<String> = control_of.values().cloned().collect();
-    let answers = chase::resolve(cfg, names).await?;
+    let answers = resolver::resolve(cfg, names).await?;
     let by_name: FxHashMap<&str, &Resolved> =
         answers.iter().map(|r| (r.host.as_str(), r)).collect();
     let mut out = FxHashMap::default();

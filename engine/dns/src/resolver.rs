@@ -1,4 +1,4 @@
-use crate::engine::{self, Config, Query};
+use crate::transport::{self, Config, Query};
 use crate::wire::{self, Data, Message};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -69,7 +69,7 @@ pub async fn lookup(
         .map(|n| Query::recursive(n.clone(), qtype))
         .collect();
     let mut out: FxHashMap<String, Vec<Data>> = FxHashMap::default();
-    engine::run(cfg, &queries, |r| {
+    transport::run(cfg, &queries, |r| {
         let Some(m) = r.msg else { return };
         let data: Vec<Data> = m
             .answers
@@ -103,7 +103,7 @@ pub async fn resolve(cfg: &Config, names: Vec<String>) -> Result<Vec<Resolved>> 
         .map(|n| Query::recursive(n.clone(), wire::A))
         .collect();
     let mut out: Vec<Resolved> = Vec::with_capacity(names.len());
-    engine::run(cfg, &queries, |r| {
+    transport::run(cfg, &queries, |r| {
         let host = r.query.name.clone();
         let res = match r.msg {
             Some(m) => {
@@ -137,7 +137,7 @@ pub async fn resolve(cfg: &Config, names: Vec<String>) -> Result<Vec<Resolved>> 
             ..cfg.clone()
         };
         let mut again: FxHashMap<String, Resolved> = FxHashMap::default();
-        engine::run(&slow, &lost, |r| {
+        transport::run(&slow, &lost, |r| {
             if let Some(m) = r.msg {
                 let host = r.query.name.clone();
                 let (chain, addrs) = follow(&m, &host);
@@ -176,7 +176,7 @@ pub async fn resolve(cfg: &Config, names: Vec<String>) -> Result<Vec<Resolved>> 
             .map(|n| Query::recursive(n, wire::A))
             .collect();
         let mut tails: FxHashMap<String, (Vec<String>, Vec<Ipv4Addr>)> = FxHashMap::default();
-        engine::run(cfg, &qs, |r| {
+        transport::run(cfg, &qs, |r| {
             if let Some(m) = r.msg {
                 tails.insert(r.query.name.clone(), follow(&m, &r.query.name));
             }

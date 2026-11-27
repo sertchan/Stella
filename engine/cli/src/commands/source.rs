@@ -1,4 +1,6 @@
-use crate::ctx::{Ctx, Out};
+pub mod feeds;
+
+use crate::context::{Context, Out};
 use anyhow::Result;
 use std::time::Instant;
 use stella_core::store::Row;
@@ -219,7 +221,7 @@ enum Cmd {
     },
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     let started = Instant::now();
     match args.cmd {
         Cmd::Toplist { list, top } => {
@@ -496,18 +498,18 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         Cmd::Adtech {
             par,
             min_intermediary,
-        } => crate::feeds::adtech(ctx, par, min_intermediary).await?,
-        Cmd::Prebid => crate::feeds::prebid(ctx).await?,
-        Cmd::Cmp { par } => crate::feeds::cmp(ctx, par).await?,
-        Cmd::Scripts { par } => crate::feeds::scripts(ctx, par).await?,
-        Cmd::Extract => crate::feeds::extract(ctx).await?,
-        Cmd::Nrd { date } => crate::feeds::nrd(ctx, date).await?,
-        Cmd::HttpArchive => crate::feeds::http_archive(ctx).await?,
-        Cmd::SdkIndex { limit } => crate::feeds::sdk_index(ctx, limit).await?,
-        Cmd::GithubCode { par } => crate::feeds::github_code(ctx, par).await?,
-        Cmd::Sdk { par } => crate::feeds::sdks(ctx, par).await?,
-        Cmd::Extension { par } => crate::feeds::extensions(ctx, par).await?,
-        Cmd::Passive { par } => crate::feeds::passive(ctx, par).await?,
+        } => feeds::adtech(ctx, par, min_intermediary).await?,
+        Cmd::Prebid => feeds::prebid(ctx).await?,
+        Cmd::Cmp { par } => feeds::cmp(ctx, par).await?,
+        Cmd::Scripts { par } => feeds::scripts(ctx, par).await?,
+        Cmd::Extract => feeds::extract(ctx).await?,
+        Cmd::Nrd { date } => feeds::nrd(ctx, date).await?,
+        Cmd::HttpArchive => feeds::http_archive(ctx).await?,
+        Cmd::SdkIndex { limit } => feeds::sdk_index(ctx, limit).await?,
+        Cmd::GithubCode { par } => feeds::github_code(ctx, par).await?,
+        Cmd::Sdk { par } => feeds::sdks(ctx, par).await?,
+        Cmd::Extension { par } => feeds::extensions(ctx, par).await?,
+        Cmd::Passive { par } => feeds::passive(ctx, par).await?,
         Cmd::CnameVendors {
             dns,
             match_only,
@@ -518,23 +520,23 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             min_lift,
         } => {
             if !match_only {
-                let learn = crate::cname::Learn {
+                let learn = crate::commands::cname::Learn {
                     sample,
                     top,
                     list,
                     min_zones,
                     min_lift,
                 };
-                crate::cname::learn(ctx, &dns.config(), &learn).await?;
+                crate::commands::cname::learn(ctx, &dns.config(), &learn).await?;
             }
-            crate::cname::matches(ctx)?;
+            crate::commands::cname::matches(ctx)?;
         }
     }
     Ok(())
 }
 
 pub async fn ct_zones(
-    ctx: &mut Ctx,
+    ctx: &mut Context,
     input: Vec<String>,
     par: usize,
     subzone: bool,

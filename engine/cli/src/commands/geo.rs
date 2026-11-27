@@ -1,11 +1,11 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use crate::pipeline::{DnsArgs, ProbeArgs};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Instant;
 use stella_core::store::Row;
-use stella_dns::chase;
+use stella_dns::resolver;
 use stella_probe::battery::{self, Battery};
 use stella_probe::rules;
 
@@ -29,7 +29,7 @@ pub fn regional(
         let here = local.get(host);
         if let Some(a) = addrs
             .iter()
-            .find(|a| chase::public(a) && here.is_none_or(|h| !h.contains(a)))
+            .find(|a| resolver::public(a) && here.is_none_or(|h| !h.contains(a)))
             && seen.insert((host.clone(), *a))
         {
             out.push((host.clone(), *region, *a));
@@ -39,7 +39,7 @@ pub fn regional(
     out
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     let started = Instant::now();
     let hosts: Vec<String> = if args.picks {
         ctx.store
@@ -51,7 +51,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     };
     let cfg = args.dns.config();
     let mut local: FxHashMap<String, FxHashSet<Ipv4Addr>> = FxHashMap::default();
-    for r in chase::resolve(&cfg, hosts.clone()).await? {
+    for r in resolver::resolve(&cfg, hosts.clone()).await? {
         local.entry(r.host).or_default().extend(r.addrs);
     }
     let placed: Vec<(String, &'static str, Vec<Ipv4Addr>)> =

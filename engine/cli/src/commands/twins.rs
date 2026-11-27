@@ -1,12 +1,12 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use crate::pipeline::{self, DnsArgs, ProbeArgs};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::net::IpAddr;
 use std::time::Instant;
 use stella_core::store::Row;
-use stella_dns::chase;
-use stella_dns::wild::Verdict;
+use stella_dns::resolver;
+use stella_dns::wildcard::Verdict;
 use stella_probe::battery::{self, Battery, HostProbe, RANDOM};
 use stella_probe::rules;
 
@@ -22,7 +22,7 @@ const SIGNATURE_BYTES: usize = 160;
 const SIGNATURE_CAP: usize = 8 * 1024;
 
 fn mask(body: &[u8]) -> String {
-    stella_core::shape::mask(&body[..body.len().min(SIGNATURE_BYTES)])
+    stella_core::digest::mask(&body[..body.len().min(SIGNATURE_BYTES)])
 }
 
 fn signature(p: &HostProbe) -> Option<String> {
@@ -47,14 +47,14 @@ fn signature(p: &HostProbe) -> Option<String> {
     Some(parts.join("||"))
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     verify(ctx, &args.dns, &args.probe, ctx.lines())
         .await
         .map(|_| ())
 }
 
 pub async fn verify(
-    ctx: &mut Ctx,
+    ctx: &mut Context,
     dns: &DnsArgs,
     probe: &ProbeArgs,
     rows: Vec<Vec<String>>,
@@ -99,7 +99,7 @@ pub async fn verify(
     let res = pipeline::resolve(ctx, &w, &dns.config(), names, true).await?;
     let mut addr: FxHashMap<String, (IpAddr, bool)> = FxHashMap::default();
     for n in &res {
-        if let Some(a) = n.res.addrs.iter().find(|a| chase::public(a)) {
+        if let Some(a) = n.res.addrs.iter().find(|a| resolver::public(a)) {
             addr.insert(
                 n.res.host.clone(),
                 (IpAddr::V4(*a), n.wild == Some(Verdict::Wild)),

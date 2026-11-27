@@ -3,7 +3,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde_json::Value;
 use std::sync::LazyLock;
 use stella_core::known::Known;
-use stella_core::psl::Psl;
+use stella_core::public_suffix::Psl;
 
 pub const ADGUARD_TRACKERS: &str = "https://raw.githubusercontent.com/AdguardTeam/cname-trackers/master/data/combined_original_trackers_justdomains.txt";
 pub const ADGUARD_ADS: &str = "https://raw.githubusercontent.com/AdguardTeam/cname-trackers/master/data/combined_disguised_ads.json";

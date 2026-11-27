@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 use rusqlite::params;
 use rustc_hash::FxHashMap;
@@ -28,7 +28,7 @@ pub struct Args {
     no_consent: bool,
 }
 
-fn pages_for(ctx: &Ctx, host: &str, n: usize) -> Result<Vec<String>> {
+fn pages_for(ctx: &Context, host: &str, n: usize) -> Result<Vec<String>> {
     let mut sites: Vec<String> = ctx
         .store
         .set(
@@ -81,7 +81,7 @@ fn metrics(o: &Outcome) -> String {
     )
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     let hosts: Vec<String> = if args.picks {
         ctx.store
             .rows(&format!(

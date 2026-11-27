@@ -1,9 +1,10 @@
-use crate::ctx::{self, Ctx, Out};
-use crate::{audit, cname, feeds, hunt, known, recheck, source, stats, twins};
+use crate::commands::source::feeds;
+use crate::commands::{audit, cname, hunt, known, recheck, source, stats, twins};
+use crate::context::{self, Context, Out};
 use anyhow::Result;
 use rustc_hash::FxHashSet;
 use std::time::Instant;
-use stella_core::psl::Psl;
+use stella_core::public_suffix::Psl;
 
 #[derive(clap::Args)]
 #[group(id = "campaign")]
@@ -57,7 +58,7 @@ pub struct Args {
 
 const TWIN_MAX_NUM: u32 = 40;
 
-fn last_run(ctx: &Ctx) -> i64 {
+fn last_run(ctx: &Context) -> i64 {
     ctx.store
         .rows("SELECT max(at) FROM done WHERE kind = 'campaign'")
         .ok()
@@ -67,7 +68,7 @@ fn last_run(ctx: &Ctx) -> i64 {
         .unwrap_or(0)
 }
 
-fn picks_since(ctx: &Ctx, since: i64, limit: usize) -> Result<Vec<(String, String)>> {
+fn picks_since(ctx: &Context, since: i64, limit: usize) -> Result<Vec<(String, String)>> {
     Ok(ctx
         .store
         .rows(&format!(
@@ -108,7 +109,7 @@ impl Drop for Stage {
     }
 }
 
-async fn sync(ctx: &mut Ctx, args: &Args) -> Result<()> {
+async fn sync(ctx: &mut Context, args: &Args) -> Result<()> {
     let _s = Stage::start("sync");
     let stale = known::age(ctx).is_none_or(|a| a.as_secs() > args.list_age_hours * 3600);
     if stale {
@@ -129,7 +130,7 @@ async fn sync(ctx: &mut Ctx, args: &Args) -> Result<()> {
     Ok(())
 }
 
-async fn expand(ctx: &mut Ctx, args: &Args, since: i64) -> Result<()> {
+async fn expand(ctx: &mut Context, args: &Args, since: i64) -> Result<()> {
     let _s = Stage::start("zones of new picks");
     let picks = picks_since(ctx, since, usize::MAX >> 1)?;
     let known = ctx.known();
@@ -145,7 +146,7 @@ async fn expand(ctx: &mut Ctx, args: &Args, since: i64) -> Result<()> {
         zones.len()
     );
     let mut passive: Vec<String> = zones.clone();
-    let mates = crate::mates::zones(ctx)?;
+    let mates = crate::commands::mates::zones(ctx)?;
     eprintln!(
         "campaign: {} zones share dns, tags or certificates with pick zones",
         mates.len()
@@ -161,7 +162,7 @@ async fn expand(ctx: &mut Ctx, args: &Args, since: i64) -> Result<()> {
     source::ct_zones(ctx, ct, 4, false, true).await
 }
 
-async fn hunt_pending(ctx: &mut Ctx, args: &Args) -> Result<usize> {
+async fn hunt_pending(ctx: &mut Context, args: &Args) -> Result<usize> {
     let _s = Stage::start("hunt");
     let known = ctx.known();
     let mut names: Vec<String> = ctx
@@ -175,7 +176,7 @@ async fn hunt_pending(ctx: &mut Ctx, args: &Args) -> Result<usize> {
     hunt::hunt(ctx, &args.hunt, names).await
 }
 
-async fn twins_of_picks(ctx: &mut Ctx, args: &Args, since: i64) -> Result<usize> {
+async fn twins_of_picks(ctx: &mut Context, args: &Args, since: i64) -> Result<usize> {
     let _s = Stage::start("twins");
     let seeds = picks_since(ctx, since, args.twin_seeds)?;
     let mut rows: Vec<Vec<String>> = Vec::new();
@@ -196,7 +197,7 @@ async fn twins_of_picks(ctx: &mut Ctx, args: &Args, since: i64) -> Result<usize>
     twins::verify(ctx, &args.hunt.dns, &args.hunt.probe, rows).await
 }
 
-fn log_run(ctx: &Ctx, start_at: i64, secs: f64, outcome: &str) -> Result<()> {
+fn log_run(ctx: &Context, start_at: i64, secs: f64, outcome: &str) -> Result<()> {
     let stages = STAGES
         .lock()
         .map(|mut s| std::mem::take(&mut *s))
@@ -216,7 +217,7 @@ fn log_run(ctx: &Ctx, start_at: i64, secs: f64, outcome: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     let started = Instant::now();
     let start_at = stella_core::now();
     let result = campaign(ctx, args, started, start_at).await;
@@ -229,14 +230,14 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
 }
 
 async fn campaign(
-    ctx: &mut Ctx,
+    ctx: &mut Context,
     mut args: Args,
     started: Instant,
     start_at: i64,
 ) -> Result<String> {
     args.hunt.tag.clear();
     let since = last_run(ctx);
-    ctx::quiet(!args.verbose);
+    context::quiet(!args.verbose);
     if !args.offline {
         sync(ctx, &args).await?;
     }
@@ -256,7 +257,7 @@ async fn campaign(
     }
     {
         let _s = Stage::start("fuse");
-        crate::fuse::apply(
+        crate::commands::fuse::apply(
             ctx,
             2,
             usize::try_from(args.hunt.max_ip).unwrap_or(0),
@@ -271,14 +272,14 @@ async fn campaign(
         let _s = Stage::start("clusters");
         eprintln!(
             "campaign: clusters {}",
-            crate::clusters::summary(ctx, 3, 2)?
+            crate::commands::clusters::summary(ctx, 3, 2)?
         );
     }
     ctx.store.conn.execute(
         "INSERT OR REPLACE INTO done VALUES('campaign', ?1, ?2)",
         rusqlite::params![start_at.to_string(), start_at],
     )?;
-    ctx::quiet(false);
+    context::quiet(false);
     let mut out = Out::new();
     let fresh = ctx.store.rows(&format!(
         "SELECT host, product, verdict, evidence FROM hit

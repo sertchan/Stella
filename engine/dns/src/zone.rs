@@ -1,6 +1,6 @@
-use crate::chase;
-use crate::engine::{self, Config, Query};
+use crate::resolver;
 use crate::stub::Stub;
+use crate::transport::{self, Config, Query};
 use crate::wire::{self, Data, Message};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -92,7 +92,7 @@ pub async fn selfhosted(cfg: &Config, zones: Vec<String>) -> Result<Vec<Pair>> {
         .map(|z| Query::recursive(z, wire::NS))
         .collect();
     let mut ns_of: FxHashMap<String, Vec<String>> = FxHashMap::default();
-    engine::run(cfg, &qs, |r| {
+    transport::run(cfg, &qs, |r| {
         let Some(m) = r.msg else { return };
         let z = r.query.name.as_str();
         let list: Vec<String> = m
@@ -110,13 +110,13 @@ pub async fn selfhosted(cfg: &Config, zones: Vec<String>) -> Result<Vec<Pair>> {
     })
     .await?;
     let hosts: FxHashSet<String> = ns_of.values().flatten().cloned().collect();
-    let resolved = chase::resolve(cfg, hosts.into_iter().collect()).await?;
+    let resolved = resolver::resolve(cfg, hosts.into_iter().collect()).await?;
     let ip_of: FxHashMap<&str, Ipv4Addr> = resolved
         .iter()
         .filter_map(|r| {
             r.addrs
                 .iter()
-                .find(|a| chase::public(a))
+                .find(|a| resolver::public(a))
                 .map(|a| (r.host.as_str(), *a))
         })
         .collect();
@@ -196,7 +196,7 @@ fn nsec_next<'a>(m: &'a Message, owner: Option<&str>) -> Option<&'a str> {
 }
 
 pub async fn nsec_probe(cfg: &Config, pairs: &[Pair]) -> Result<Vec<(usize, String)>> {
-    let mut rng = stella_core::rng::Rng::seeded();
+    let mut rng = stella_core::random::Rng::seeded();
     let qs: Vec<Query> = pairs
         .iter()
         .map(|p| Query {
@@ -213,7 +213,7 @@ pub async fn nsec_probe(cfg: &Config, pairs: &[Pair]) -> Result<Vec<(usize, Stri
         index.insert(format!("{}|{}", q.name, pairs[i].server), i);
     }
     let mut out = Vec::new();
-    engine::run(cfg, &qs, |r| {
+    transport::run(cfg, &qs, |r| {
         let Some(m) = r.msg else { return };
         let Some(next) = nsec_next(&m, None) else {
             return;

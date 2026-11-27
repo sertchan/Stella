@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out};
+use crate::context::{Context, Out};
 use anyhow::Result;
 use rusqlite::params;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -45,7 +45,7 @@ pub fn kind_of(product: &str) -> Option<&'static str> {
         FUSED => None,
         "collector" | "pixel" => Some("collector"),
         "behaviour" => Some("behaviour"),
-        crate::cname::PRODUCT => Some("vendor-cname"),
+        crate::commands::cname::PRODUCT => Some("vendor-cname"),
         "twin" => Some("twin"),
         _ => Some("product"),
     }
@@ -139,7 +139,7 @@ fn add(signals: &mut FxHashMap<String, BTreeSet<&'static str>>, host: &str, kind
     signals.entry(host.to_string()).or_default().insert(kind);
 }
 
-pub fn gather(ctx: &Ctx, max_ip: usize) -> Result<FxHashMap<String, BTreeSet<&'static str>>> {
+pub fn gather(ctx: &Context, max_ip: usize) -> Result<FxHashMap<String, BTreeSet<&'static str>>> {
     let mut signals: FxHashMap<String, BTreeSet<&'static str>> = FxHashMap::default();
     for r in ctx.store.rows(&format!(
         "SELECT host FROM score WHERE score >= {BEHAVIOUR_MIN_SCORE} AND known = ''"
@@ -189,7 +189,7 @@ pub fn gather(ctx: &Ctx, max_ip: usize) -> Result<FxHashMap<String, BTreeSet<&'s
     Ok(signals)
 }
 
-pub fn apply(ctx: &Ctx, min_kinds: usize, max_ip: usize, dry_run: bool) -> Result<usize> {
+pub fn apply(ctx: &Context, min_kinds: usize, max_ip: usize, dry_run: bool) -> Result<usize> {
     let signals = gather(ctx, max_ip)?;
     let hits: Vec<HitRow> = ctx
         .store
@@ -249,7 +249,7 @@ pub fn apply(ctx: &Ctx, min_kinds: usize, max_ip: usize, dry_run: bool) -> Resul
     Ok(changes.len())
 }
 
-pub fn run(ctx: &Ctx, args: &Args) -> Result<()> {
+pub fn run(ctx: &Context, args: &Args) -> Result<()> {
     let n = apply(ctx, args.min_kinds, args.max_ip, args.dry_run)?;
     eprintln!("changes={n} dry-run={}", args.dry_run);
     Ok(())
@@ -338,7 +338,7 @@ mod tests {
         assert!(fuse(FxHashMap::default(), &hits, 2, |_| false).is_empty());
         let infra = [hit(
             "v.io",
-            crate::cname::PRODUCT,
+            crate::commands::cname::PRODUCT,
             REVIEW,
             "CNAME to cdn.vendor.net",
         )];

@@ -1,10 +1,10 @@
-use crate::ctx::Ctx;
+use crate::context::Context;
 use crate::pipeline::{self, DnsArgs, ProbeArgs};
 use anyhow::Result;
 use rusqlite::params;
 use std::net::IpAddr;
 use std::time::Instant;
-use stella_dns::chase;
+use stella_dns::resolver;
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -24,14 +24,14 @@ const DAY: i64 = 86_400;
 const STRIKE: &str = "recheck-miss";
 const MAX_MISSED_PERCENT: usize = 30;
 
-pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
+pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     recheck(ctx, &args.dns, &args.probe, args.older_than_days)
         .await
         .map(|_| ())
 }
 
 pub async fn recheck(
-    ctx: &mut Ctx,
+    ctx: &mut Context,
     dns: &DnsArgs,
     probe: &ProbeArgs,
     older_than_days: i64,
@@ -53,7 +53,7 @@ pub async fn recheck(
     let items: Vec<_> = res
         .into_iter()
         .filter_map(|r| {
-            let a = r.res.addrs.iter().find(|a| chase::public(a))?;
+            let a = r.res.addrs.iter().find(|a| resolver::public(a))?;
             let b = pipeline::battery_for(ctx, &r.res.host, "auto");
             Some((r.res.host, IpAddr::V4(*a), b))
         })
