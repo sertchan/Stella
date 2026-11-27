@@ -6,6 +6,7 @@ use std::time::Instant;
 use stella_core::psl::Psl;
 
 #[derive(clap::Args)]
+#[group(id = "campaign")]
 pub struct Args {
     #[command(flatten)]
     hunt: hunt::Args,
