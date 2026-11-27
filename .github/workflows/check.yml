@@ -20,6 +20,100 @@ jobs:
     name: flake check
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/nix
+      - name: flake check
+        run: nix flake check --print-build-logs --keep-going
+      - name: coverage from the test run
+        if: always()
+        run: nix build .#coverage -o coverage
+      - name: summary
+        if: always()
+        run: |
+          checks=.#checks.x86_64-linux
+          row() { printf '%-12s %s\n' "$1" "$2"; }
+          lock() { jq -r --arg n "$1" '.nodes[$n].locked | "\(.rev)  \(.lastModified | todate)"' flake.lock; }
+          {
+            echo '```text'
+            row commit "$GITHUB_SHA"
+            row event "$GITHUB_EVENT_NAME  $GITHUB_REF"
+            row nix "$(nix --version | awk '{print $NF}')"
+            row rustc "$(nix eval --raw --inputs-from . nixpkgs#rustc.version)"
+            row nixpkgs "$(lock nixpkgs)"
+            row crane "$(lock crane)"
+            echo
+            echo "checks"
+            for c in $(nix eval --json "$checks" --apply builtins.attrNames | jq -r '.[]'); do
+              out=$(nix eval --raw "$checks.$c.outPath")
+              if nix path-info "$out" > /dev/null 2>&1; then r=pass; else r=FAIL; fi
+              printf '  %-20s %-5s %s\n' "$c" "$r" "$out"
+            done
+            junit=coverage/junit.xml
+            if [ -f "$junit" ]; then
+              head=$(grep -o '<testsuites [^>]*>' "$junit")
+              attr() { echo "$head" | grep -o " $1=\"[^\"]*\"" | cut -d'"' -f2; }
+              echo
+              row tests "$(attr tests) run, $(attr failures) failed, $(attr skipped) skipped, $(attr time) s, nextest, dev profile with overflow checks"
+              echo "  slowest"
+              grep -o '<testcase [^>]*>' "$junit" |
+                sed -E 's/.* name="([^"]*)" classname="([^"]*)".* time="([^"]*)".*/\3 \2 \1/' |
+                sort -rn | head -5 |
+                while read -r t c n; do printf '    %8s s  %-24s %s\n' "$t" "$c" "$n"; done
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: coverage summary
+        if: always() && hashFiles('coverage/summary.json') != ''
+        run: |
+            totals=coverage/summary.json
+            cell() { awk -v a="$1" -v b="$2" 'BEGIN { if (b == 0) printf "%13s %6s", "-", "-"; else printf "%13s %5.1f%%", a "/" b, a * 100 / b }'; }
+            line() { printf '%-10s %s  %s  %s\n' "$1" "$(cell "$2" "$3")" "$(cell "$4" "$5")" "$(cell "$6" "$7")"; }
+            {
+              echo '```text'
+              printf '%-10s %20s  %20s  %20s\n' crate lines functions regions
+              jq -r '.data[0].files
+                | group_by(.filename | capture("crates/(?<c>[^/]+)/").c)
+                | map({
+                    c: (.[0].filename | capture("crates/(?<c>[^/]+)/").c),
+                    t: (map(.summary) | {
+                      lc: (map(.lines.covered) | add), ln: (map(.lines.count) | add),
+                      fc: (map(.functions.covered) | add), fn: (map(.functions.count) | add),
+                      rc: (map(.regions.covered) | add), rn: (map(.regions.count) | add)
+                    })
+                  })
+                | sort_by(-(.t.lc / .t.ln))
+                | .[]
+                | [.c, .t.lc, .t.ln, .t.fc, .t.fn, .t.rc, .t.rn]
+                | @tsv' "$totals" |
+              while IFS=$'\t' read -r c a b d e f g; do line "$c" "$a" "$b" "$d" "$e" "$f" "$g"; done
+              jq -r '.data[0].totals | ["total", .lines.covered, .lines.count, .functions.covered, .functions.count, .regions.covered, .regions.count] | @tsv' "$totals" |
+              while IFS=$'\t' read -r c a b d e f g; do line "$c" "$a" "$b" "$d" "$e" "$f" "$g"; done
+              echo
+              echo "files with the most uncovered lines"
+              jq -r '.data[0].files
+                | map(select(.summary.lines.count > .summary.lines.covered))
+                | sort_by(.summary.lines.covered - .summary.lines.count)
+                | .[:12][]
+                | [(.filename | sub(".*/crates/"; "")), .summary.lines.covered, .summary.lines.count, .summary.lines.percent]
+                | @tsv' "$totals" |
+              while IFS=$'\t' read -r f a b p; do printf '  %-36s %13s %5.1f%%\n' "$f" "$a/$b" "$p"; done
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always() && hashFiles('coverage/summary.json') != ''
+        with:
+          name: coverage
+          path: |
+            coverage/lcov.info
+            coverage/report.txt
+
+  release:
+    name: release build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
       id-token: write
@@ -29,8 +123,6 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/nix
-      - name: flake check
-        run: nix flake check --print-build-logs --keep-going
       - name: build
         run: nix build --print-build-logs
       - name: smoke test
@@ -69,39 +161,11 @@ jobs:
           REPRO: ${{ steps.repro.outcome }}
           REPO: ${{ github.repository }}
         run: |
-          checks=.#checks.x86_64-linux
           row() { printf '%-12s %s\n' "$1" "$2"; }
-          lock() { jq -r --arg n "$1" '.nodes[$n].locked | "\(.rev)  \(.lastModified | todate)"' flake.lock; }
           {
             echo '```text'
-            row commit "$GITHUB_SHA"
-            row event "$GITHUB_EVENT_NAME  $GITHUB_REF"
-            row nix "$(nix --version | awk '{print $NF}')"
-            row rustc "$(nix eval --raw --inputs-from . nixpkgs#rustc.version)"
-            row nixpkgs "$(lock nixpkgs)"
-            row crane "$(lock crane)"
-            echo
-            echo "checks"
-            for c in $(nix eval --json "$checks" --apply builtins.attrNames | jq -r '.[]'); do
-              out=$(nix eval --raw "$checks.$c.outPath")
-              if nix path-info "$out" > /dev/null 2>&1; then r=pass; else r=FAIL; fi
-              printf '  %-16s %-5s %s\n' "$c" "$r" "$out"
-            done
-            junit="$(nix eval --raw "$checks.tests.outPath")/junit.xml"
-            if [ -f "$junit" ]; then
-              head=$(grep -o '<testsuites [^>]*>' "$junit")
-              attr() { echo "$head" | grep -o " $1=\"[^\"]*\"" | cut -d'"' -f2; }
-              echo
-              row tests "$(attr tests) run, $(attr failures) failed, $(attr skipped) skipped, $(attr time) s, nextest, dev profile with overflow checks"
-              echo "  slowest"
-              grep -o '<testcase [^>]*>' "$junit" |
-                sed -E 's/.* name="([^"]*)" classname="([^"]*)".* time="([^"]*)".*/\3 \2 \1/' |
-                sort -rn | head -5 |
-                while read -r t c n; do printf '    %8s s  %-24s %s\n' "$t" "$c" "$n"; done
-            fi
             if [ -e result ]; then
               bin=result/bin/.stella-wrapped
-              echo
               row binary "$(readlink -f "$bin")"
               row size "$(stat -c %s "$bin") bytes"
               row sha256 "$(sha256sum "$bin" | cut -d' ' -f1)"
@@ -122,60 +186,6 @@ jobs:
             fi
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-  coverage:
-    name: coverage
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/nix
-      - name: measure
-        run: nix build --print-build-logs .#coverage -o coverage
-      - name: summary
-        run: |
-          totals=coverage/summary.json
-          cell() { awk -v a="$1" -v b="$2" 'BEGIN { if (b == 0) printf "%13s %6s", "-", "-"; else printf "%13s %5.1f%%", a "/" b, a * 100 / b }'; }
-          line() { printf '%-10s %s  %s  %s\n' "$1" "$(cell "$2" "$3")" "$(cell "$4" "$5")" "$(cell "$6" "$7")"; }
-          {
-            echo '```text'
-            printf '%-10s %20s  %20s  %20s\n' crate lines functions regions
-            jq -r '.data[0].files
-              | group_by(.filename | capture("crates/(?<c>[^/]+)/").c)
-              | map({
-                  c: (.[0].filename | capture("crates/(?<c>[^/]+)/").c),
-                  t: (map(.summary) | {
-                    lc: (map(.lines.covered) | add), ln: (map(.lines.count) | add),
-                    fc: (map(.functions.covered) | add), fn: (map(.functions.count) | add),
-                    rc: (map(.regions.covered) | add), rn: (map(.regions.count) | add)
-                  })
-                })
-              | sort_by(-(.t.lc / .t.ln))
-              | .[]
-              | [.c, .t.lc, .t.ln, .t.fc, .t.fn, .t.rc, .t.rn]
-              | @tsv' "$totals" |
-            while IFS=$'\t' read -r c a b d e f g; do line "$c" "$a" "$b" "$d" "$e" "$f" "$g"; done
-            jq -r '.data[0].totals | ["total", .lines.covered, .lines.count, .functions.covered, .functions.count, .regions.covered, .regions.count] | @tsv' "$totals" |
-            while IFS=$'\t' read -r c a b d e f g; do line "$c" "$a" "$b" "$d" "$e" "$f" "$g"; done
-            echo
-            echo "files with the most uncovered lines"
-            jq -r '.data[0].files
-              | map(select(.summary.lines.count > .summary.lines.covered))
-              | sort_by(.summary.lines.covered - .summary.lines.count)
-              | .[:12][]
-              | [(.filename | sub(".*/crates/"; "")), .summary.lines.covered, .summary.lines.count, .summary.lines.percent]
-              | @tsv' "$totals" |
-            while IFS=$'\t' read -r f a b p; do printf '  %-36s %13s %5.1f%%\n' "$f" "$a/$b" "$p"; done
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: coverage
-          path: |
-            coverage/lcov.info
-            coverage/report.txt
 
   audit:
     name: advisories
