@@ -19,27 +19,42 @@ pkgs.writeShellApplication {
     remote=''${1:-origin}
     refs=$(cat)
     logs=$(mktemp -d)
-    trap 'rm -rf "$logs"' EXIT
+    trees=()
+    cleanup() {
+      for t in "''${trees[@]}"; do
+        git worktree remove --force "$t" 2> /dev/null || true
+      done
+      rm -rf "$logs"
+    }
+    trap cleanup EXIT
     zero=0000000000000000000000000000000000000000
 
-    if ! grep -qv " $zero " <<< "$refs"; then
-      exit 0
-    fi
-
+    revs=()
     while read -r _ local remote_ref _; do
-      if [ "$remote_ref" != refs/heads/main ] || [ -z "$local" ] || [ "$local" = "$zero" ]; then
+      if [ -z "$local" ] || [ "$local" = "$zero" ]; then
         continue
       fi
-      result=$(gh api "repos/{owner}/{repo}/commits/$local/check-runs?check_name=ci-success" --jq '.check_runs[0].conclusion // "none"' 2> /dev/null || echo unknown)
-      if [ "$result" != success ]; then
-        echo "error[ci-required] push of $local to main"
-        echo "  found    ci-success is $result for this commit"
-        echo "  expected a commit that already passed CI"
-        echo "  why      main only takes commits that passed every CI check. The checks bind everyone, the owner included, so nothing lands untested."
-        echo "  fix      run land, which pushes the commit to a ci branch, waits for CI and moves main only when CI passes."
-        exit 1
+      if [ "$remote_ref" = refs/heads/main ]; then
+        if ! result=$(gh api "repos/{owner}/{repo}/commits/$local/check-runs?check_name=ci-success" --jq '.check_runs[0].conclusion // "missing, CI never ran on it"' 2> /dev/null); then
+          result="missing, GitHub has never seen this commit"
+        fi
+        if [ "$result" != success ]; then
+          echo "error[ci-required] push of $local to main"
+          echo "  found    ci-success: $result"
+          echo "  expected a commit that already passed CI"
+          echo "  why      main only takes commits that passed every CI check. The checks bind everyone, the owner included, so nothing lands untested."
+          echo "  fix      run land, which pushes the commit to a ci branch, waits for CI and moves main only when CI passes."
+          exit 1
+        fi
+        echo "pre-push: $local passed CI as ci-success, so main may take it"
+        continue
       fi
+      revs+=("$local")
     done <<< "$refs"
+
+    if [ "''${#revs[@]}" -eq 0 ]; then
+      exit 0
+    fi
 
     names=()
     pids=()
@@ -60,16 +75,17 @@ pkgs.writeShellApplication {
     }
 
     start commitlint lint_refs
-    start outdated stella-lint outdated
-    start cargo-audit cargo audit --deny warnings
-    while read -r _ local _ _; do
-      if [ -z "$local" ] || [ "$local" = "$zero" ]; then
-        continue
-      fi
-      start "flake-check-''${local:0:10}" nix flake check "git+file://$root?rev=$local"
-    done <<< "$refs"
+    for rev in "''${revs[@]}"; do
+      short=''${rev:0:10}
+      tree="$logs/tree-$short"
+      git worktree add -q --detach "$tree" "$rev"
+      trees+=("$tree")
+      start "flake-check-$short" nix flake check "git+file://$root?rev=$rev"
+      start "outdated-$short" stella-lint outdated "$tree"
+      start "cargo-audit-$short" cargo audit --deny warnings --file "$tree/Cargo.lock"
+    done
 
-    echo "pre-push: running ''${names[*]} in parallel"
+    echo "pre-push: running ''${names[*]} in parallel on the pushed commits"
     for pid in "''${pids[@]}"; do
       wait "$pid" || true
     done
