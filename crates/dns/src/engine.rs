@@ -17,6 +17,7 @@ pub struct Config {
     pub timeout: Duration,
     pub tries: u8,
     pub sockets: usize,
+    pub ecs_server: SocketAddr,
 }
 
 impl Default for Config {
@@ -27,6 +28,7 @@ impl Default for Config {
             timeout: Duration::from_millis(2500),
             tries: 4,
             sockets: 8,
+            ecs_server: SocketAddr::from(crate::ecs::SERVER),
         }
     }
 }

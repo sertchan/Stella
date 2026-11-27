@@ -3,7 +3,6 @@ use crate::engine::{self, Config, Query};
 use crate::wire;
 use anyhow::Result;
 use rustc_hash::FxHashMap;
-use std::net::SocketAddr;
 
 pub const SERVER: ([u8; 4], u16) = ([8, 8, 8, 8], 53);
 pub const REGIONS: &[(&str, [u8; 3])] = &[
@@ -32,7 +31,7 @@ pub async fn addresses(cfg: &Config, names: &[String]) -> Result<Vec<Placed>> {
         qps: cfg.qps.min(QPS),
         ..cfg.clone()
     };
-    let server = SocketAddr::from(SERVER);
+    let server = cfg.ecs_server;
     let query = |name: &str, subnet: [u8; 3]| Query {
         server: Some(server),
         subnet: Some(subnet),
@@ -76,7 +75,7 @@ pub async fn chains(cfg: &Config, names: &[String]) -> Result<Vec<Seen>> {
         qps: cfg.qps.min(QPS),
         ..cfg.clone()
     };
-    let server = SocketAddr::from(SERVER);
+    let server = cfg.ecs_server;
     let query = |name: &str, subnet: [u8; 3]| Query {
         server: Some(server),
         subnet: Some(subnet),
