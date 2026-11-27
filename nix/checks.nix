@@ -4,6 +4,7 @@
   rust,
   stella,
 }: let
+  inherit (pkgs.lib.fileset) toSource unions;
   comments = import ./comments.nix {inherit pkgs;};
   mkCheck = name: nativeBuildInputs: script:
     pkgs.runCommand "check-${name}" {inherit nativeBuildInputs;} ''
@@ -23,6 +24,18 @@ in {
     // {
       cargoArtifacts = rust.debugDeps;
       cargoClippyExtraArgs = "--all-targets -- -D warnings";
+    });
+  deny = rust.craneLib.cargoDeny (rust.common
+    // {
+      src = toSource {
+        root = ../.;
+        fileset = unions [
+          ../Cargo.toml
+          ../Cargo.lock
+          ../crates
+          ../deny.toml
+        ];
+      };
     });
   tests = rust.craneLib.cargoNextest (rust.debug
     // {
