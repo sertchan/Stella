@@ -8,7 +8,6 @@ const SKIP_DIRS: &[&str] = &["target", "corpus", "artifacts", "node_modules"];
 
 const WHY_COMMENT: &str = "Stella carries no comments of any kind. Good code explains itself through names, types and structure, and documentation lives outside the code. A comment either repeats what the code already says or hides that a name, a type or a function should say more, and it rots silently when the code changes.";
 const FIX_COMMENT: &str = "Delete the comment. If it held a reason, give that reason a home that the compiler or the history keeps honest: a well named binding or constant, a help = \"...\" string, an error message, or the commit message.";
-const WHY_DASH: &str = "Prose in this tree is plain B2 English with one fact per sentence. Em and en dashes join two thoughts into one sentence and read differently across fonts and terminals.";
 const WHY_HELP: &str = "Help strings are short labels printed by clap. They carry no trailing full stop and no semicolon, so that every line in --help reads the same way.";
 const WHY_MARKER: &str = concat!(
     "TO",
@@ -123,14 +122,6 @@ pub fn check_text(rel: &str, text: &str, out: &mut Vec<Finding>) {
                     .found(line[col..].trim_end())
                     .expected("no comment, the code says it")
                     .fix(FIX_COMMENT),
-            );
-        }
-        if let Some(col) = line.find(['\u{2014}', '\u{2013}']) {
-            out.push(
-                Finding::new("dash", place(col), WHY_DASH)
-                    .found(trimmed)
-                    .expected("two sentences, or a comma, a colon or the word to")
-                    .fix("Split the sentence or rewrite it without the dash."),
             );
         }
         if kind == Kind::Rust
@@ -321,10 +312,7 @@ mod tests {
             [("help-text", "a.rs:1:15".into())]
         );
         assert!(rules("a.rs", "#[arg(help = \"Open connections\")]\n").is_empty());
-        assert_eq!(
-            rules("r.md", "one \u{2014} two\n"),
-            [("dash", "r.md:1:5".into())]
-        );
+        assert!(rules("r.md", "one \u{2014} two\n").is_empty());
         let todo = ["TO", "DO"].concat();
         assert_eq!(
             rules("a.rs", &format!("let {todo}_X = 1;\nlet y = \"{todo}\";\n")),

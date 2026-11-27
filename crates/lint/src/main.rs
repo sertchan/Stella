@@ -24,7 +24,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     #[command(
-        about = "Check every text file for comments, lint attributes, dashes, help text, work markers, whitespace and size"
+        about = "Check every text file for comments, lint attributes, help text, work markers, whitespace and size"
     )]
     Sources {
         #[arg(default_value = ".", help = "Directory to check")]

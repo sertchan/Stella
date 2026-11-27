@@ -77,7 +77,7 @@ in {
   source-lint = mkCheck {
     name = "source-lint";
     inputs = [lint];
-    why = "Every tracked text file follows the source rules: no comments, no dashes in prose, plain help text, no work markers, clean whitespace and small files.";
+    why = "Every tracked text file follows the source rules: no comments, no lint attributes, plain help text, no work markers, clean whitespace and small files.";
     fix = "Fix each finding above. Run stella-lint sources . in nix develop to check before you commit.";
     script = "stella-lint sources ${self}";
   };
