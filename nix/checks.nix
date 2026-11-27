@@ -17,6 +17,7 @@ in {
   lint = mkCheck "lint" [pkgs.statix] "statix check ${self}";
   dead-code = mkCheck "dead-code" [pkgs.deadnix] "deadnix --fail ${self}";
   comments = mkCheck "comments" [comments] "stella-comments ${self}";
+  workflows = mkCheck "workflows" [pkgs.actionlint pkgs.shellcheck] "actionlint ${self}/.github/workflows/*.yml";
   clippy = stella.overrideAttrs (prev: {
     pname = "${prev.pname}-clippy";
     nativeBuildInputs = prev.nativeBuildInputs ++ [pkgs.clippy];
