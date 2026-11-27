@@ -161,3 +161,33 @@ async fn limiter_caps_slots_handshakes_and_paces() {
     }
     assert!(started.elapsed() >= Duration::from_millis(90));
 }
+
+#[tokio::test]
+async fn redirected_hosts_reach_the_mirror() {
+    let srv = Http::plain(Site::new().route("/v1/list", Reply::ok("mirrored")))
+        .await
+        .expect("server");
+    client::redirect("Mirror.Example.Test", &format!("http://{}/", srv.addr));
+    assert_eq!(
+        client::target("https://mirror.example.test/v1/list?x=1#top"),
+        format!("http://{}/v1/list?x=1#top", srv.addr)
+    );
+    assert_eq!(
+        client::target("https://user@mirror.example.test:8443"),
+        format!("http://{}", srv.addr)
+    );
+    assert_eq!(
+        client::target("https://other.example.test/a"),
+        "https://other.example.test/a"
+    );
+    assert_eq!(client::target("not a url"), "not a url");
+    let http = client::build(&Options {
+        insecure: true,
+        ..Options::default()
+    })
+    .expect("client");
+    let page = client::fetch(&http, "https://mirror.example.test/v1/list", 64)
+        .await
+        .expect("mirrored page");
+    assert_eq!(page.body, b"mirrored");
+}
