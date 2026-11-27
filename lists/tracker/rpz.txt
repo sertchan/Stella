@@ -1,0 +1,11 @@
+; Title: Stella Tracker
+; Description: Tracking, tag manager and collector hosts found by active discovery and confirmed by how they answer
+; Homepage: https://github.com/sertchan/Stella
+; License: https://github.com/sertchan/Stella/blob/main/LICENSE
+; Last modified: 2026-11-27T19:28:43Z
+; Expires: 1 day
+; Number of entries: 0
+; Syntax: Response Policy Zone, CNAME . answers NXDOMAIN
+$TTL 300
+@ SOA localhost. root.localhost. 1795807723 43200 3600 86400 300
+  NS localhost.

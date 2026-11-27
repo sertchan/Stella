@@ -1,0 +1,9 @@
+[Adblock Plus]
+! Title: Stella Self-Hosted Telemetry
+! Description: Self-hosted analytics instances such as Matomo, Plausible, Umami and PostHog on first-party domains
+! Homepage: https://github.com/sertchan/Stella
+! License: https://github.com/sertchan/Stella/blob/main/LICENSE
+! Last modified: 2026-11-27T19:28:43Z
+! Expires: 1 day
+! Number of entries: 0
+! Syntax: Adblock Plus, ||domain^ covers every subdomain
