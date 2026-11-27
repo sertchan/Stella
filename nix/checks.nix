@@ -84,10 +84,10 @@ in {
   build = mkCheck {
     name = "build";
     inputs = [stella];
-    why = "The release build is the binary that every real scan runs. It compiles with optimizations and fat link time optimization, which can fail where a debug build passes, and it wraps the runtime tools that Stella starts.";
+    why = "The release build is the binary that every real scan runs. It compiles with optimizations and thin link time optimization, which can fail where a debug build passes, and it wraps the runtime tools that Stella starts.";
     fix = "Run nix build in nix develop and fix the first error it reports. Then run result/bin/stella --help to see that the wrapped binary starts.";
     tool = "stella --version";
-    scope = "release profile with fat LTO, one codegen unit and overflow checks, binary of $(stat -L -c %s ${stella}/bin/.stella-wrapped | numfmt --to=iec-i --suffix=B)";
+    scope = "release profile with thin LTO, 16 codegen units and overflow checks, binary of $(stat -L -c %s ${stella}/bin/.stella-wrapped | numfmt --to=iec-i --suffix=B)";
     script = ''
       echo "stella --help, every subcommand must parse"
       stella --help | sed 's/^/  /'
