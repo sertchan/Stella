@@ -8,7 +8,7 @@
 in
   rust.craneLib.cargoNextest (rust.measured
     // {
-      nativeBuildInputs = rust.measured.nativeBuildInputs ++ [pkgs.git];
+      nativeBuildInputs = rust.measured.nativeBuildInputs ++ [pkgs.git pkgs.jq];
       STELLA_CHROMIUM = chromium;
       SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
       cargoArtifacts = rust.measuredDeps;
@@ -24,5 +24,7 @@ in
         cargo llvm-cov report --lcov --output-path $out/lcov.info
         cargo llvm-cov report --json --summary-only --output-path $out/summary.json
         cargo llvm-cov report > $out/report.txt
+        echo
+        jq -r '.data[0].totals | "coverage lines \(.lines.covered)/\(.lines.count) \(.lines.percent * 10 | round / 10)%, functions \(.functions.covered)/\(.functions.count) \(.functions.percent * 10 | round / 10)%, regions \(.regions.covered)/\(.regions.count) \(.regions.percent * 10 | round / 10)%"' $out/summary.json
       '';
     })
