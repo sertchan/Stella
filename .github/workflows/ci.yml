@@ -80,14 +80,14 @@ jobs:
           report="$RUNNER_TEMP/report.txt"
           attr=".#checks.x86_64-linux.$CHECK"
           pname=$(nix eval --raw "$attr" --apply 'd: (builtins.parseDrvName d.name).name')
-          begin=$(date +%s)
+          begin=$(date +%s%N)
           echo "::group::nix build log of every derivation, open for the full output"
           set +e
           nix build --print-build-logs --no-link "$attr" 2>&1 | tee "$log"
           st=${PIPESTATUS[0]}
           set -e
           echo "::endgroup::"
-          secs=$(( $(date +%s) - begin ))
+          secs=$(awk -v s="$begin" -v e="$(date +%s%N)" 'BEGIN { printf "%.2f", (e - s) / 1e9 }')
           sed -n "s/^$pname> //p" "$log" > "$own"
           built=$(grep -c "^building '" "$log" || true)
           fetched=$(grep -c "^copying path" "$log" || true)
@@ -334,7 +334,7 @@ jobs:
             gh api "$API" | jq -r '
               [.jobs[] | select(.name != "ci-success" and .started_at != null)] as $j
               | ($j | map(.started_at | fromdate) | min) as $t0
-              | "wall     \(($j | map((.completed_at // .started_at) | fromdate) | max) - $t0) s from the first job start to the last job end",
+              | "wall     whole seconds from the GitHub API, \(($j | map((.completed_at // .started_at) | fromdate) | max) - $t0) s from the first job start to the last job end",
                 "",
                 "jobs, in the order they started",
                 ($j | sort_by(.started_at)[] | [.name, (.conclusion // .status), "\(((.completed_at // .started_at) | fromdate) - (.started_at | fromdate)) s", "+\((.started_at | fromdate) - $t0) s"] | @tsv)' |
