@@ -65,9 +65,9 @@ pkgs.writeShellApplication {
       shift
       names+=("$name")
       (
-        begin=$(date +%s)
+        begin=$(date +%s%N)
         if "$@" > "$logs/$name.log" 2>&1; then status=0; else status=$?; fi
-        echo "$status $(( $(date +%s) - begin ))" > "$logs/$name.status"
+        echo "$status $(awk -v s="$begin" -v e="$(date +%s%N)" 'BEGIN { printf "%.2f", (e - s) / 1e9 }')" > "$logs/$name.status"
       ) &
       pids+=($!)
     }
@@ -112,9 +112,9 @@ pkgs.writeShellApplication {
     for name in "''${names[@]}"; do
       read -r status secs < "$logs/$name.status"
       if [ "$status" -eq 0 ]; then
-        printf '  %-28s ok      %4s s\n' "$name" "$secs"
+        printf '  %-28s ok      %7s s\n' "$name" "$secs"
       else
-        printf '  %-28s failed  %4s s\n' "$name" "$secs"
+        printf '  %-28s failed  %7s s\n' "$name" "$secs"
         failed+=("$name")
       fi
     done
