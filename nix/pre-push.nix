@@ -7,6 +7,8 @@ pkgs.writeShellApplication {
   runtimeInputs = [
     pkgs.git
     pkgs.coreutils
+    pkgs.cargo
+    pkgs.cargo-audit
     lint
   ];
   text = ''
@@ -38,6 +40,8 @@ pkgs.writeShellApplication {
 
     start commitlint lint_refs
     start outdated stella-lint outdated
+    start cargo-audit cargo audit --deny warnings
+    start cargo-audit-fuzz cargo audit --deny warnings --file fuzz/Cargo.lock
     while read -r _ local _ _; do
       if [ -z "$local" ] || [ "$local" = "$zero" ]; then
         continue
