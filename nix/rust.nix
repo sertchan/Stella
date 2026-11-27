@@ -40,6 +40,6 @@ in {
   lintDeps = craneLib.buildDepsOnly (debug
     // {
       pname = "stella-lint";
-      cargoExtraArgs = "--locked --package stella-lint";
+      cargoExtraArgs = "--offline --package stella-lint";
     });
 }

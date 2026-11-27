@@ -14,7 +14,7 @@ in
     // {
       pname = "stella-lint";
       cargoArtifacts = rust.lintDeps;
-      cargoExtraArgs = "--locked --package stella-lint";
+      cargoExtraArgs = "--offline --package stella-lint";
       doCheck = false;
       nativeBuildInputs = rust.common.nativeBuildInputs ++ [pkgs.makeWrapper];
       postInstall = ''
