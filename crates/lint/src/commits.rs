@@ -129,7 +129,8 @@ pub fn covers(atom: &str, path: &str) -> bool {
             ) || path.starts_with(".cargo/")
         }
         "meta" => {
-            path.starts_with(".github/") || matches!(path, ".gitattributes" | ".editorconfig")
+            path.starts_with(".github/")
+                || matches!(path, ".gitattributes" | ".editorconfig" | "treefmt.toml")
         }
         "gitignore" => file == ".gitignore",
         "readme" => !path.contains('/') && path.starts_with("README"),
@@ -624,6 +625,7 @@ mod tests {
         assert!(covers("dns", "crates/dns/Cargo.toml"));
         assert!(covers("nix/checks", "nix/checks.nix"));
         assert!(covers("meta", ".github/workflows/check.yml"));
+        assert!(covers("meta", "treefmt.toml"));
         assert!(covers("gitignore", "fuzz/.gitignore"));
         assert!(covers("cargo", "deny.toml"));
         assert!(!covers("readme", "docs/README.md"));
