@@ -14,7 +14,10 @@
     tool,
     scope,
   }: ''
-    started=$(date +%s)
+    started=$(date +%s%N)
+    elapsed() {
+      awk -v s="$started" -v e="$(date +%s%N)" 'BEGIN { printf "%.2f", (e - s) / 1e9 }'
+    }
     echo "check    ${name}"
     echo "purpose  ${why}"
     echo "tool     $(${tool} 2>&1 | head -n 1)"
@@ -23,11 +26,11 @@
   '';
   passed = name: ''
     echo
-    echo "result   ${name} passed in $(( $(date +%s) - started )) s"
+    echo "result   ${name} passed in $(elapsed) s"
   '';
   report = name: why: fix: ''
     echo
-    echo "result   ${name} failed in $(( $(date +%s) - started )) s"
+    echo "result   ${name} failed in $(elapsed) s"
     echo
     echo "error[${name}] the ${name} check failed, see the output above"
     echo "  why      ${why}"
