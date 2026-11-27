@@ -20,13 +20,15 @@ jobs:
     name: flake check
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - uses: ./.github/actions/nix
-        with:
-          cache: "true"
       - name: flake check
         run: nix flake check --print-build-logs --keep-going
       - name: build
@@ -36,10 +38,36 @@ jobs:
       - name: rebuild bit for bit
         id: repro
         run: nix build --rebuild --print-build-logs
+      - name: sbom
+        if: github.event_name == 'push'
+        run: |
+          mkdir dist
+          cp -L result/bin/.stella-wrapped dist/stella
+          nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-cyclonedx -c cargo cyclonedx -f json --target x86_64-unknown-linux-gnu
+          mv crates/cli/stella.cdx.json dist/stella.cdx.json
+          nix run --inputs-from . nixpkgs#sbomnix -- ./result --cdx dist/closure.cdx.json
+      - name: attest provenance
+        if: github.event_name == 'push'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: dist/stella
+      - name: attest sbom
+        if: github.event_name == 'push'
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e
+        with:
+          subject-path: dist/stella
+          sbom-path: dist/stella.cdx.json
+      - name: upload signed build
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: stella-${{ github.sha }}
+          path: dist
       - name: summary
         if: always()
         env:
           REPRO: ${{ steps.repro.outcome }}
+          REPO: ${{ github.repository }}
         run: |
           checks=.#checks.x86_64-linux
           {
@@ -71,6 +99,18 @@ jobs:
               failure) echo "**Reproducible:** ❌ a second build failed or gave different bytes." ;;
               *) echo "**Reproducible:** not checked." ;;
             esac
+            if [ -f dist/stella.cdx.json ]; then
+              echo
+              echo "## Signed build"
+              echo
+              echo "| file | content |"
+              echo "| --- | --- |"
+              echo "| \`stella\` | sha256 \`$(sha256sum dist/stella | cut -d' ' -f1)\` |"
+              echo "| \`stella.cdx.json\` | $(jq '.components | length' dist/stella.cdx.json) Rust crates |"
+              echo "| \`closure.cdx.json\` | $(jq '.components | length' dist/closure.cdx.json) Nix store paths |"
+              echo
+              echo "Verify a downloaded binary with \`gh attestation verify stella -R $REPO\`."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   coverage:
@@ -189,56 +229,3 @@ jobs:
           name: fuzz-crash-${{ matrix.target }}
           path: fuzz/artifacts/${{ matrix.target }}
           if-no-files-found: ignore
-
-  provenance:
-    name: sbom and provenance
-    if: github.event_name == 'push'
-    needs: check
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/nix
-        with:
-          cache: "true"
-      - name: build
-        run: nix build --print-build-logs
-      - name: sbom
-        run: |
-          mkdir dist
-          cp -L result/bin/.stella-wrapped dist/stella
-          nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-cyclonedx -c cargo cyclonedx -f json --target x86_64-unknown-linux-gnu
-          mv crates/cli/stella.cdx.json dist/stella.cdx.json
-          nix run --inputs-from . nixpkgs#sbomnix -- ./result --cdx dist/closure.cdx.json
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
-        with:
-          subject-path: dist/stella
-      - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e
-        with:
-          subject-path: dist/stella
-          sbom-path: dist/stella.cdx.json
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: stella-${{ github.sha }}
-          path: dist
-      - name: summary
-        env:
-          REPO: ${{ github.repository }}
-        run: |
-          {
-            echo "## Signed build"
-            echo
-            echo "| file | content |"
-            echo "| --- | --- |"
-            echo "| \`stella\` | sha256 \`$(sha256sum dist/stella | cut -d' ' -f1)\` |"
-            echo "| \`stella.cdx.json\` | $(jq '.components | length' dist/stella.cdx.json) Rust crates |"
-            echo "| \`closure.cdx.json\` | $(jq '.components | length' dist/closure.cdx.json) Nix store paths |"
-            echo
-            echo "Verify a downloaded binary with \`gh attestation verify stella -R $REPO\`."
-          } >> "$GITHUB_STEP_SUMMARY"
