@@ -159,7 +159,7 @@ pub async fn adtech(ctx: &mut Context, par: usize, min_intermediary: usize) -> R
     drop(out);
     w.finish()?;
     eprintln!(
-        "sites={total} ads.txt={with_ads} app-ads.txt={with_app_ads} ad-systems={} with-sellers.json={} zones={} attested={} secs={:.1}",
+        "sites={total} ads.txt={with_ads} app-ads.txt={with_app_ads} ad-systems={} with-sellers.json={} zones={} attested={} secs={:.2}",
         systems.len(),
         sellers.len(),
         rows.len(),
@@ -246,7 +246,7 @@ pub async fn cmp(ctx: &mut Context, par: usize) -> Result<()> {
         out.row(&[h, vendor]);
     }
     eprintln!(
-        "vendors={} hosts-unlisted={} secs={:.1}",
+        "vendors={} hosts-unlisted={} secs={:.2}",
         list.len(),
         rows.len(),
         started.elapsed().as_secs_f64()
@@ -364,7 +364,7 @@ pub async fn scripts(ctx: &mut Context, par: usize) -> Result<()> {
     drop(out);
     w.finish()?;
     eprintln!(
-        "scripts={total} hosts-unlisted={} linked-files={linked_total} linked-hosts-unlisted={} secs={:.1}",
+        "scripts={total} hosts-unlisted={} linked-files={linked_total} linked-hosts-unlisted={} secs={:.2}",
         rows.len(),
         linked_rows.len(),
         started.elapsed().as_secs_f64()
@@ -478,7 +478,7 @@ pub async fn passive_zones(ctx: &mut Context, input: Vec<String>, par: usize) ->
     drop(out);
     w.finish()?;
     eprintln!(
-        "zones={total} ok={ok} names={names} secs={:.1}",
+        "zones={total} ok={ok} names={names} secs={:.2}",
         started.elapsed().as_secs_f64()
     );
     Ok(())
@@ -573,7 +573,7 @@ pub async fn extensions(ctx: &mut Context, par: usize) -> Result<()> {
     drop(out);
     w.finish()?;
     eprintln!(
-        "extensions={total} fetched={fetched} hosts-unlisted={} secs={:.1}",
+        "extensions={total} fetched={fetched} hosts-unlisted={} secs={:.2}",
         rows.len(),
         started.elapsed().as_secs_f64()
     );
@@ -696,7 +696,7 @@ pub async fn sdks(ctx: &mut Context, par: usize) -> Result<()> {
     drop(out);
     w.finish()?;
     eprintln!(
-        "packages={total} scanned={scanned} hosts-unlisted={} secs={:.1}",
+        "packages={total} scanned={scanned} hosts-unlisted={} secs={:.2}",
         rows.len(),
         started.elapsed().as_secs_f64()
     );
@@ -783,7 +783,7 @@ pub async fn github_code(ctx: &mut Context, par: usize) -> Result<()> {
     drop(out);
     w.finish()?;
     eprintln!(
-        "queries={} files={total} hosts-unlisted={} secs={:.1}",
+        "queries={} files={total} hosts-unlisted={} secs={:.2}",
         queries.len(),
         rows.len(),
         started.elapsed().as_secs_f64()
@@ -808,7 +808,7 @@ pub async fn sdk_index(ctx: &mut Context, limit: usize) -> Result<()> {
     let launch = stella_crawl::cdp::Launch {
         headful: false,
         user_agent: stella_crawl::cdp::DESKTOP_UA,
-        display: None,
+        wayland: None,
         width: 1280,
         height: 900,
         extra: Vec::new(),
@@ -868,7 +868,7 @@ pub async fn sdk_index(ctx: &mut Context, limit: usize) -> Result<()> {
     }
     drop(out);
     eprintln!(
-        "sdk index: categories={} sdks={} maven={} secs={:.1}",
+        "sdk index: categories={} sdks={} maven={} secs={:.2}",
         categories.len(),
         details.len(),
         coords.len(),
@@ -908,7 +908,7 @@ pub async fn http_archive(ctx: &mut Context) -> Result<()> {
     drop(out);
     w.finish()?;
     eprintln!(
-        "third-party-web: domains={} unlisted={} zones={} secs={:.1}",
+        "third-party-web: domains={} unlisted={} zones={} secs={:.2}",
         all.len(),
         fresh.len(),
         fresh.iter().filter(|e| e.zone).count(),
@@ -942,7 +942,7 @@ pub async fn nrd(ctx: &mut Context, date: Option<String>) -> Result<()> {
     }
     drop(out);
     eprintln!(
-        "newly registered {date}: domains={} unlisted={fresh} secs={:.1}",
+        "newly registered {date}: domains={} unlisted={fresh} secs={:.2}",
         list.len(),
         started.elapsed().as_secs_f64()
     );

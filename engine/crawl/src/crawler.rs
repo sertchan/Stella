@@ -1,4 +1,4 @@
-use crate::cdp::{Browser, Display, Launch};
+use crate::cdp::{Browser, Compositor, Launch};
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -266,15 +266,15 @@ pub async fn run(
     work: &Path,
     tx: mpsc::Sender<Page>,
 ) -> Result<()> {
-    let display = if opts.headful {
-        Some(Display::start(90 + std::process::id() % 400, opts.width, opts.height).await?)
+    let compositor = if opts.headful {
+        Some(Compositor::start(90 + std::process::id() % 400, opts.width, opts.height).await?)
     } else {
         None
     };
     let launch = Launch {
         headful: opts.headful,
         user_agent: opts.profile.user_agent(),
-        display: display.as_ref().map(|d| d.name.clone()),
+        wayland: compositor.as_ref().map(|c| c.wayland.clone()),
         width: opts.width,
         height: opts.height,
         extra: Vec::new(),
@@ -300,8 +300,8 @@ pub async fn run(
             b.close().await;
         }
     }
-    if let Some(d) = display {
-        d.stop().await;
+    if let Some(c) = compositor {
+        c.stop().await;
     }
     Ok(())
 }

@@ -59,7 +59,7 @@ type Sessions = Arc<Mutex<FxHashMap<String, mpsc::UnboundedSender<Value>>>>;
 pub struct Launch {
     pub headful: bool,
     pub user_agent: &'static str,
-    pub display: Option<String>,
+    pub wayland: Option<Wayland>,
     pub width: u32,
     pub height: u32,
     pub extra: Vec<String>,
@@ -120,10 +120,12 @@ impl Browser {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true);
+        cmd.env_remove("DISPLAY");
         if opts.headful {
-            cmd.arg("--ozone-platform=x11");
-            if let Some(d) = &opts.display {
-                cmd.env("DISPLAY", d);
+            cmd.arg("--ozone-platform=wayland");
+            if let Some(w) = &opts.wayland {
+                cmd.env("WAYLAND_DISPLAY", &w.socket)
+                    .env("XDG_RUNTIME_DIR", &w.runtime_dir);
             }
         } else {
             cmd.args(["--headless=new", "--disable-gpu"]);
@@ -232,33 +234,81 @@ impl Browser {
     }
 }
 
-pub struct Display {
-    child: Child,
-    pub name: String,
+#[derive(Clone, Debug)]
+pub struct Wayland {
+    pub socket: String,
+    pub runtime_dir: PathBuf,
 }
 
-impl Display {
+pub struct Compositor {
+    child: Child,
+    pub wayland: Wayland,
+    own_dir: Option<PathBuf>,
+}
+
+pub const COMPOSITOR_WAIT: Duration = Duration::from_secs(10);
+
+fn compositor_binary() -> String {
+    std::env::var("STELLA_WESTON").unwrap_or_else(|_| "weston".into())
+}
+
+impl Compositor {
     pub async fn start(number: u32, width: u32, height: u32) -> Result<Self> {
-        let name = format!(":{number}");
-        let child = Command::new("Xvfb")
-            .arg(&name)
+        let socket = format!("stella-{number}");
+        let (runtime_dir, own_dir) = if let Some(d) = std::env::var_os("XDG_RUNTIME_DIR") {
+            (PathBuf::from(d), None)
+        } else {
+            let d = std::env::temp_dir().join(format!("stella-wayland-{number}"));
+            tokio::fs::create_dir_all(&d).await?;
+            tokio::fs::set_permissions(&d, std::os::unix::fs::PermissionsExt::from_mode(0o700))
+                .await?;
+            (d.clone(), Some(d))
+        };
+        let path = runtime_dir.join(&socket);
+        let _ = tokio::fs::remove_file(&path).await;
+        let _ = tokio::fs::remove_file(runtime_dir.join(format!("{socket}.lock"))).await;
+        let child = Command::new(compositor_binary())
             .args([
-                "-screen",
-                "0",
-                &format!("{width}x{height}x24"),
-                "-nolisten",
-                "tcp",
+                "--backend=headless",
+                "--renderer=pixman",
+                "--shell=kiosk",
+                "--no-config",
+                "--idle-time=0",
             ])
+            .arg(format!("--socket={socket}"))
+            .arg(format!("--width={width}"))
+            .arg(format!("--height={height}"))
+            .env("XDG_RUNTIME_DIR", &runtime_dir)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()
-            .context("start Xvfb")?;
-        tokio::time::sleep(Duration::from_millis(800)).await;
-        Ok(Self { child, name })
+            .context("start weston, the headless Wayland compositor")?;
+        let deadline = tokio::time::Instant::now() + COMPOSITOR_WAIT;
+        while !tokio::fs::try_exists(&path).await.unwrap_or(false) {
+            if tokio::time::Instant::now() > deadline {
+                bail!("weston did not open its Wayland socket {}", path.display());
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        Ok(Self {
+            child,
+            wayland: Wayland {
+                socket,
+                runtime_dir,
+            },
+            own_dir,
+        })
     }
 
     pub async fn stop(mut self) {
         let _ = self.child.kill().await;
+        let _ = self.child.wait().await;
+        if let Some(d) = self.own_dir {
+            let _ = tokio::fs::remove_dir_all(d).await;
+        }
     }
 }

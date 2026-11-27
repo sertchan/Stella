@@ -1,4 +1,4 @@
-use crate::cdp::{Browser, Display, Launch};
+use crate::cdp::{Browser, Compositor, Launch};
 use crate::crawler::{CONSENT_JS, FIRST_CONSENT, wait_for_memory};
 use anyhow::{Result, anyhow};
 use rustc_hash::FxHashMap;
@@ -283,11 +283,11 @@ pub fn judge(base: &[Snapshot], blocked: &Snapshot) -> Judgement {
     j
 }
 
-fn launch(opts: &Options, display: Option<&Display>, extra: Vec<String>) -> Launch {
+fn launch(opts: &Options, compositor: Option<&Compositor>, extra: Vec<String>) -> Launch {
     Launch {
         headful: opts.headful,
         user_agent: crate::cdp::ANDROID_UA,
-        display: display.map(|d| d.name.clone()),
+        wayland: compositor.map(|c| c.wayland.clone()),
         width: opts.width,
         height: opts.height,
         extra,
@@ -304,8 +304,8 @@ pub async fn run(
     work: &Path,
     tx: mpsc::Sender<Outcome>,
 ) -> Result<()> {
-    let display = if opts.headful {
-        Some(Display::start(500 + std::process::id() % 400, opts.width, opts.height).await?)
+    let compositor = if opts.headful {
+        Some(Compositor::start(500 + std::process::id() % 400, opts.width, opts.height).await?)
     } else {
         None
     };
@@ -313,7 +313,7 @@ pub async fn run(
     pages.sort_unstable();
     pages.dedup();
     let base_browser = Browser::launch(
-        &launch(&opts, display.as_ref(), Vec::new()),
+        &launch(&opts, compositor.as_ref(), Vec::new()),
         &work.join("base"),
     )
     .await?;
@@ -334,7 +334,7 @@ pub async fn run(
         let permit = sem.clone().acquire_owned().await?;
         wait_for_memory().await;
         let profile = work.join(format!("blocked-{n}"));
-        let l = launch(&opts, display.as_ref(), vec![block_rule(&case.host)]);
+        let l = launch(&opts, compositor.as_ref(), vec![block_rule(&case.host)]);
         let (base, opts, tx) = (base.clone(), opts.clone(), tx.clone());
         set.spawn(async move {
             match Browser::launch(&l, &profile).await {
@@ -361,8 +361,8 @@ pub async fn run(
         });
     }
     while set.join_next().await.is_some() {}
-    if let Some(d) = display {
-        d.stop().await;
+    if let Some(c) = compositor {
+        c.stop().await;
     }
     Ok(())
 }

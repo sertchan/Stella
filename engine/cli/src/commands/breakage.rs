@@ -22,7 +22,10 @@ pub struct Args {
         help = "Browsers with a blocked host at once"
     )]
     par: usize,
-    #[arg(long, help = "Run Chromium with a window on a virtual display")]
+    #[arg(
+        long,
+        help = "Run Chromium with a window on a headless Wayland compositor"
+    )]
     headful: bool,
     #[arg(long, help = "Leave cookie banners alone")]
     no_consent: bool,

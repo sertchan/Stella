@@ -21,7 +21,7 @@ pub struct CrawlArgs {
     after: u64,
     #[arg(
         long,
-        help = "Run a normal windowed Chromium on an Xvfb display instead of headless mode"
+        help = "Run a normal windowed Chromium on a headless Wayland compositor instead of headless mode"
     )]
     headful: bool,
     #[arg(
@@ -148,7 +148,7 @@ pub async fn crawl(ctx: &mut Context, args: CrawlArgs) -> Result<()> {
     drop(out);
     w.finish()?;
     eprintln!(
-        "urls={total} pages={pages} requests={requests} errors={errors} secs={:.1}",
+        "urls={total} pages={pages} requests={requests} errors={errors} secs={:.2}",
         started.elapsed().as_secs_f64()
     );
     Ok(())
