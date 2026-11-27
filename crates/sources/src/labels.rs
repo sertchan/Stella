@@ -7,7 +7,7 @@ pub fn learn(conn: &Connection, psl: &Psl, min_zones: usize) -> Result<Vec<(Stri
     let mut stmt = conn.prepare("SELECT DISTINCT host FROM hit WHERE verdict = 'PICK'")?;
     let hosts: Vec<String> = stmt
         .query_map([], |r| r.get::<_, String>(0))?
-        .filter_map(|r| r.ok())
+        .filter_map(std::result::Result::ok)
         .collect();
     let mut zones: FxHashMap<String, FxHashSet<String>> = FxHashMap::default();
     for h in &hosts {

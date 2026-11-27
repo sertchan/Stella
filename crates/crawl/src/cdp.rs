@@ -204,7 +204,7 @@ impl Browser {
         Ok(v.get("result").cloned().unwrap_or(Value::Null))
     }
 
-    pub fn notify(&self, session: &str, method: &str, params: Value) {
+    pub fn notify(&self, session: &str, method: &str, params: &Value) {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let msg = json!({ "id": id, "method": method, "params": params, "sessionId": session });
         let _ = self.out.send(Message::Text(msg.to_string().into()));

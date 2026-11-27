@@ -32,7 +32,7 @@ pub const HEADERS: &[&str] = &[
 ];
 
 static LINK_TAG: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?i)<link\b[^>]*>"#).expect("LINK_TAG regex"));
+    LazyLock::new(|| Regex::new(r"(?i)<link\b[^>]*>").expect("LINK_TAG regex"));
 static LINK_REL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)\brel\s*=\s*["']?\s*(preconnect|dns-prefetch)\b"#).expect("LINK_REL regex")
 });

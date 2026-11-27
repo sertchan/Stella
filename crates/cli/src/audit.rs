@@ -205,9 +205,10 @@ fn judge(host: &str, issues: &Issues, exc: &Exceptions) -> (&'static str, Vec<St
     for s in stella_core::name::suffixes(host) {
         for (list, kind) in exc.get(s).into_iter().flatten() {
             match kind.as_str() {
-                DNS if s == host => lower(REVIEW, format!("allowed by {list}"), &mut notes),
+                DNS | DNS_EXACT if s == host => {
+                    lower(REVIEW, format!("allowed by {list}"), &mut notes);
+                }
                 DNS => notes.push(format!("{s} allowed by {list}")),
-                DNS_EXACT if s == host => lower(REVIEW, format!("allowed by {list}"), &mut notes),
                 CONTENT if s == host => lower(
                     REVIEW,
                     format!("{list} has an exception for this host, check it live"),

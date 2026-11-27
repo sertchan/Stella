@@ -87,6 +87,14 @@ pub fn key(kind: &str, value: &str, regdom: impl Fn(&str) -> String) -> Option<S
     (!shared && !key.is_empty()).then_some(key)
 }
 
+fn root(parent: &mut [usize], mut i: usize) -> usize {
+    while parent[i] != i {
+        parent[i] = parent[parent[i]];
+        i = parent[i];
+    }
+    i
+}
+
 pub fn mates(
     rows: &[(String, String, String)],
     pick_zones: &FxHashSet<String>,
@@ -125,13 +133,6 @@ pub fn mates(
         }
     }
     let mut parent: Vec<usize> = (0..index.len()).collect();
-    fn root(parent: &mut [usize], mut i: usize) -> usize {
-        while parent[i] != i {
-            parent[i] = parent[parent[i]];
-            i = parent[i];
-        }
-        i
-    }
     for (_, _, zones) in &kept {
         let first = index[zones[0]];
         for z in &zones[1..] {
@@ -233,7 +234,7 @@ fn edges(ctx: &Ctx) -> Result<Vec<(String, String, String)>> {
     Ok(rows)
 }
 
-pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
+pub fn run(ctx: &Ctx, args: &Args) -> Result<()> {
     let rows = edges(ctx)?;
     let pick_zones = pick_zones(ctx)?;
     let found = mates(
@@ -314,7 +315,7 @@ mod tests {
         assert_eq!(got[2].key, "adnet-dns.com");
         assert_eq!(got[0].example, "adnet.com");
         assert!(mates(&rows, &picks, 1, 0.5, regdom).is_empty());
-        let mut hosted = rows.clone();
+        let mut hosted = rows;
         for i in 0..5 {
             hosted.push(row(&format!("client{i}.com"), "ns", "ns1.adnet-dns.com"));
         }

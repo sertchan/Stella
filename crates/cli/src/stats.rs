@@ -81,7 +81,7 @@ pub fn runs(ctx: &Ctx, last: usize) -> Result<Vec<Vec<String>>> {
     ))
 }
 
-pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
+pub fn run(ctx: &Ctx, args: &Args) -> Result<()> {
     let mut out = Out::new();
     let rows = if args.runs {
         runs(ctx, args.last)?

@@ -14,7 +14,7 @@ fn unpack_nested(pkg: &Path, out: &Path) -> Result<Vec<PathBuf>> {
     let mut has_dex = false;
     for i in 0..zip.len() {
         let Ok(mut f) = zip.by_index(i) else { continue };
-        let Ok(name) = f.name().map(|n| n.into_owned()) else {
+        let Ok(name) = f.name().map(std::borrow::Cow::into_owned) else {
             continue;
         };
         if name.ends_with(".dex") {
@@ -64,7 +64,7 @@ pub fn snippets(root: &Path, hosts: &[String]) -> Vec<(String, String)> {
         }
         let lines: Vec<&str> = text.lines().collect();
         let rel = f.strip_prefix(root).unwrap_or(&f).display().to_string();
-        for (host, acc) in out.iter_mut() {
+        for (host, acc) in &mut out {
             for (i, l) in lines.iter().enumerate() {
                 if acc.len() >= MAX_LINES_PER_HOST || !l.contains(host.as_str()) {
                     continue;

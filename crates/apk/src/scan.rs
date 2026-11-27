@@ -44,14 +44,13 @@ fn members<R: Read + Seek>(
     out: &mut Vec<(String, Vec<u8>)>,
 ) -> Result<()> {
     for i in 0..zip.len() {
-        let mut f = match zip.by_index(i) {
-            Ok(f) => f,
-            Err(_) => continue,
+        let Ok(mut f) = zip.by_index(i) else {
+            continue;
         };
         if f.is_dir() || f.size() > MEMBER_CAP {
             continue;
         }
-        let Ok(name) = f.name().map(|n| n.into_owned()) else {
+        let Ok(name) = f.name().map(std::borrow::Cow::into_owned) else {
             continue;
         };
         let nested = name.to_ascii_lowercase().ends_with(".apk");

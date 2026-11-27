@@ -76,9 +76,9 @@ pub fn labels(name: &str) -> Option<Vec<Vec<u8>>> {
             b'\\' => {
                 let d = bytes.get(i + 1..i + 4)?;
                 if d.iter().all(u8::is_ascii_digit) {
-                    let v = (d[0] - b'0') as u16 * 100
-                        + (d[1] - b'0') as u16 * 10
-                        + (d[2] - b'0') as u16;
+                    let v = u16::from(d[0] - b'0') * 100
+                        + u16::from(d[1] - b'0') * 10
+                        + u16::from(d[2] - b'0');
                     cur.push(u8::try_from(v).ok()?);
                     i += 4;
                 } else {

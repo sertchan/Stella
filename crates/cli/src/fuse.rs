@@ -249,7 +249,7 @@ pub fn apply(ctx: &Ctx, min_kinds: usize, max_ip: usize, dry_run: bool) -> Resul
     Ok(changes.len())
 }
 
-pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
+pub fn run(ctx: &Ctx, args: &Args) -> Result<()> {
     let n = apply(ctx, args.min_kinds, args.max_ip, args.dry_run)?;
     eprintln!("changes={n} dry-run={}", args.dry_run);
     Ok(())

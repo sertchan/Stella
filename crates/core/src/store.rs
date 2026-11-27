@@ -204,13 +204,13 @@ impl Store {
     pub fn set(&self, sql: &str, key: &str) -> Result<FxHashSet<String>> {
         let mut stmt = self.conn.prepare(sql)?;
         let rows = stmt.query_map([key], |r| r.get::<_, String>(0))?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
+        Ok(rows.filter_map(std::result::Result::ok).collect())
     }
 
     pub fn all(&self, sql: &str) -> Result<FxHashSet<String>> {
         let mut stmt = self.conn.prepare(sql)?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
+        Ok(rows.filter_map(std::result::Result::ok).collect())
     }
 
     pub fn done(&self, kind: &str) -> Result<FxHashSet<String>> {
@@ -242,7 +242,7 @@ impl Store {
                 })
                 .collect::<rusqlite::Result<Vec<String>>>()
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
+        Ok(rows.filter_map(std::result::Result::ok).collect())
     }
 }
 
@@ -370,8 +370,8 @@ enum Msg {
     Barrier(mpsc::Sender<()>),
 }
 
-fn run(path: PathBuf, rx: mpsc::Receiver<Msg>) -> Result<u64> {
-    let mut conn = Connection::open(&path)?;
+fn run(path: &Path, rx: &mpsc::Receiver<Msg>) -> Result<u64> {
+    let mut conn = Connection::open(path)?;
     tune(&conn)?;
     let mut total = 0u64;
     while let Ok(first) = rx.recv() {
@@ -408,7 +408,7 @@ impl Writer {
         let path = path.to_path_buf();
         let handle = std::thread::Builder::new()
             .name("stella-writer".into())
-            .spawn(move || run(path, rx))?;
+            .spawn(move || run(&path, &rx))?;
         Ok(Self {
             tx,
             handle: std::sync::Arc::new(std::sync::Mutex::new(Some(handle))),

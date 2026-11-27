@@ -108,10 +108,9 @@ impl Fail {
 }
 
 fn tcp_fail(e: &std::io::Error) -> Fail {
-    use std::io::ErrorKind::{ConnectionRefused, HostUnreachable, NetworkUnreachable, TimedOut};
+    use std::io::ErrorKind::{ConnectionRefused, TimedOut};
     match e.kind() {
         ConnectionRefused => Fail::Refused,
-        HostUnreachable | NetworkUnreachable => Fail::Unreachable,
         TimedOut => Fail::TcpTimeout,
         _ => Fail::Unreachable,
     }

@@ -232,7 +232,7 @@ fn inflate(data: &[u8]) -> Option<Vec<u8>> {
             .take(INFLATE_CAP)
             .read_to_end(&mut out)
             .is_ok(),
-        [0x78, 0x9c] | [0x78, 0xda] | [0x78, 0x01] => flate2::read::ZlibDecoder::new(data)
+        [0x78, 0x9c | 0xda | 0x01] => flate2::read::ZlibDecoder::new(data)
             .take(INFLATE_CAP)
             .read_to_end(&mut out)
             .is_ok(),

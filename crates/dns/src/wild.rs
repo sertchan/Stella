@@ -110,7 +110,7 @@ mod tests {
         Resolved {
             host: host.into(),
             rcode: i64::from(rcode),
-            chain: chain.iter().map(|s| s.to_string()).collect(),
+            chain: chain.iter().map(std::string::ToString::to_string).collect(),
             addrs: addrs.iter().map(|a| Ipv4Addr::from(*a)).collect(),
         }
     }

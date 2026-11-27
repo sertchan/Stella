@@ -10,6 +10,7 @@
       fileset = unions [
         ../Cargo.toml
         ../Cargo.lock
+        ../clippy.toml
         ../crates
       ];
     };

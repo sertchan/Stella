@@ -216,7 +216,6 @@ fn kind(t: &str) -> &str {
 }
 
 fn merge_loose<'a>(groups: Vec<(Vec<String>, Vec<&'a str>)>) -> Vec<(Vec<String>, Vec<&'a str>)> {
-    let mut parent: Vec<usize> = (0..groups.len()).collect();
     fn root(parent: &mut [usize], mut i: usize) -> usize {
         while parent[i] != i {
             parent[i] = parent[parent[i]];
@@ -224,6 +223,7 @@ fn merge_loose<'a>(groups: Vec<(Vec<String>, Vec<&'a str>)>) -> Vec<(Vec<String>
         }
         i
     }
+    let mut parent: Vec<usize> = (0..groups.len()).collect();
     let mut seen: FxHashMap<(usize, Vec<&str>), usize> = FxHashMap::default();
     for (gi, (slots, _)) in groups.iter().enumerate() {
         for i in 0..slots.len() {
@@ -503,7 +503,10 @@ mod tests {
     }
 
     fn member(listed: &[&str]) -> impl Fn(&str) -> Member {
-        let listed: Vec<String> = listed.iter().map(|s| s.to_string()).collect();
+        let listed: Vec<String> = listed
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
         move |host: &str| Member {
             host: host.into(),
             regdom: host.split_once('.').map_or(host, |(_, r)| r).into(),

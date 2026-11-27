@@ -270,7 +270,7 @@ fn scan_zip(data: &[u8], depth: u8, set: &mut FxHashSet<String>) -> bool {
         if f.is_dir() || f.size() > MEMBER_CAP {
             continue;
         }
-        let Ok(name) = f.name().map(|n| n.into_owned()) else {
+        let Ok(name) = f.name().map(std::borrow::Cow::into_owned) else {
             continue;
         };
         let inner = nested(&name);
@@ -555,7 +555,7 @@ mod tests {
                     0,
                     0,
                     0,
-                    100644,
+                    "100644",
                     body.len()
                 )
                 .as_bytes(),
@@ -594,7 +594,7 @@ mod tests {
             pod_archive_urls(br#"{"source":{"http":"https://cdn.vendor.io/sdk.zip"}}"#),
             ["https://cdn.vendor.io/sdk.zip"]
         );
-        let plist = br#"<plist><dict><key>NSPrivacyTracking</key><true/><key>NSPrivacyTrackingDomains</key><array><string>t.vendor.io</string><string> Ads.Vendor.io </string></array><key>Other</key><array><string>no.io</string></array></dict></plist>"#;
+        let plist = br"<plist><dict><key>NSPrivacyTracking</key><true/><key>NSPrivacyTrackingDomains</key><array><string>t.vendor.io</string><string> Ads.Vendor.io </string></array><key>Other</key><array><string>no.io</string></array></dict></plist>";
         assert_eq!(privacy_domains(plist), ["t.vendor.io", "ads.vendor.io"]);
     }
 }

@@ -32,19 +32,19 @@ pub fn collect(
     ))?;
     let neighbours = stmt
         .query_map([max_per_addr], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-        .filter_map(|r| r.ok())
+        .filter_map(std::result::Result::ok)
         .collect();
     let mut stmt = conn.prepare(&format!(
         "SELECT DISTINCT san, host FROM cert WHERE host IN ({hits}) AND san != host"
     ))?;
     let sans = stmt
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .filter_map(|r| r.ok())
+        .filter_map(std::result::Result::ok)
         .collect();
     let mut stmt = conn.prepare(hits)?;
     let zones: FxHashSet<String> = stmt
         .query_map([], |r| r.get::<_, String>(0))?
-        .filter_map(|r| r.ok())
+        .filter_map(std::result::Result::ok)
         .map(|h| psl.regdom_or_self(&h).to_string())
         .collect();
     let mut zones: Vec<String> = zones.into_iter().collect();

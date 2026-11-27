@@ -215,9 +215,8 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(mut s: S, site: &Site, log: &M
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
     loop {
-        let parsed = match parse(&buf) {
-            Ok(p) => p,
-            Err(_) => return,
+        let Ok(parsed) = parse(&buf) else {
+            return;
         };
         let Some((n, seen, asked_close)) = parsed else {
             match s.read(&mut chunk).await {

@@ -142,7 +142,11 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
         .all("SELECT DISTINCT host FROM origin WHERE source = 'control'")?
         .iter()
         .map(|h| ctx.regdom(h))
-        .chain(crate::mates::SHARED_DNS.iter().map(|s| s.to_string()))
+        .chain(
+            crate::mates::SHARED_DNS
+                .iter()
+                .map(std::string::ToString::to_string),
+        )
         .collect();
     let mut fresh: Vec<(String, IpAddr)> = names
         .into_iter()

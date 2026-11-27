@@ -119,13 +119,13 @@ fn wake_child(b: &Browser, v: &Value) {
     let Some(child) = v.pointer("/params/sessionId").and_then(Value::as_str) else {
         return;
     };
-    b.notify(child, "Network.enable", json!({}));
+    b.notify(child, "Network.enable", &json!({}));
     b.notify(
         child,
         "Target.setAutoAttach",
-        json!({ "autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true }),
+        &json!({ "autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true }),
     );
-    b.notify(child, "Runtime.runIfWaitingForDebugger", json!({}));
+    b.notify(child, "Runtime.runIfWaitingForDebugger", &json!({}));
 }
 
 async fn drain(
@@ -214,7 +214,7 @@ pub async fn visit(b: &Browser, url: &str, opts: &Options) -> Page {
         )
         .await?;
         let started = Instant::now();
-        b.notify(&session, "Page.navigate", json!({ "url": url }));
+        b.notify(&session, "Page.navigate", &json!({ "url": url }));
         let mut clicked = Vec::new();
         if opts.consent {
             drain(b, &mut rx, started + FIRST_CONSENT, &mut page).await;

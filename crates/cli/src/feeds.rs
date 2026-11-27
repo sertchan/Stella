@@ -592,25 +592,24 @@ async fn sdk_hosts(
             .ok()
             .flatten();
     }
-    let urls = match pkg {
-        sdk::Package::Github { .. } => vec![pkg.index_url()],
-        _ => {
-            let index = client::fetch(c, &pkg.index_url(), SDK_INDEX_CAP)
-                .await
-                .ok()?;
-            if index.status != 200 {
+    let urls = if let sdk::Package::Github { .. } = pkg {
+        vec![pkg.index_url()]
+    } else {
+        let index = client::fetch(c, &pkg.index_url(), SDK_INDEX_CAP)
+            .await
+            .ok()?;
+        if index.status != 200 {
+            return None;
+        }
+        let urls = pkg.archive_urls(&index.body);
+        if matches!(pkg, sdk::Package::Pod(_)) {
+            let spec = client::fetch(c, urls.first()?, SDK_INDEX_CAP).await.ok()?;
+            if spec.status != 200 {
                 return None;
             }
-            let urls = pkg.archive_urls(&index.body);
-            if !matches!(pkg, sdk::Package::Pod(_)) {
-                urls
-            } else {
-                let spec = client::fetch(c, urls.first()?, SDK_INDEX_CAP).await.ok()?;
-                if spec.status != 200 {
-                    return None;
-                }
-                sdk::pod_archive_urls(&spec.body)
-            }
+            sdk::pod_archive_urls(&spec.body)
+        } else {
+            urls
         }
     };
     for url in urls {

@@ -175,7 +175,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
                             }
                             "content-length" => length = v.parse::<usize>().ok(),
                             "transfer-encoding" => {
-                                chunked = v.to_ascii_lowercase().contains("chunked")
+                                chunked = v.to_ascii_lowercase().contains("chunked");
                             }
                             "connection" => close = close || v.eq_ignore_ascii_case("close"),
                             _ => {}

@@ -247,7 +247,7 @@ impl Dns {
                 }
             }
         });
-        let s = state.clone();
+        let s = state;
         let tcp_task = tokio::spawn(async move {
             while let Ok((stream, _)) = tcp.accept().await {
                 let s = s.clone();

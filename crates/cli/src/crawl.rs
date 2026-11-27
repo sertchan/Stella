@@ -154,7 +154,7 @@ pub async fn crawl(ctx: &mut Ctx, args: CrawlArgs) -> Result<()> {
     Ok(())
 }
 
-pub fn score(ctx: &mut Ctx, args: ScoreArgs) -> Result<()> {
+pub fn score(ctx: &mut Ctx, args: &ScoreArgs) -> Result<()> {
     let mut scorer = Scorer::default();
     {
         let mut stmt = ctx

@@ -109,14 +109,14 @@ pub async fn resolve(cfg: &Config, names: Vec<String>) -> Result<Vec<Resolved>> 
             Some(m) => {
                 let (chain, addrs) = follow(&m, &host);
                 Resolved {
-                    host: host.clone(),
+                    host,
                     rcode: i64::from(m.rcode),
                     chain,
                     addrs,
                 }
             }
             None => Resolved {
-                host: host.clone(),
+                host,
                 rcode: TIMEOUT,
                 ..Resolved::default()
             },

@@ -164,7 +164,7 @@ pub async fn snapshot(b: &Browser, url: &str, opts: &Options, blocked: Option<&s
         let mut s = Snapshot::default();
         let mut ids = FxHashMap::default();
         let started = Instant::now();
-        b.notify(&session, "Page.navigate", json!({ "url": url }));
+        b.notify(&session, "Page.navigate", &json!({ "url": url }));
         if opts.consent {
             drain(&mut rx, started + FIRST_CONSENT, blocked, &mut ids, &mut s).await;
             let _ = b

@@ -424,6 +424,10 @@ mod tests {
     use crate::battery::{FULL_EXTRA, LITE};
     use std::net::{IpAddr, Ipv4Addr};
 
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "fixtures fill the optional reply slots of a probe"
+    )]
     fn resp(status: u16, ctype: &str, server: &str, body: &str) -> Option<Resp> {
         Some(Resp {
             status,
