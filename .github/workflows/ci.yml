@@ -46,6 +46,7 @@ jobs:
           CHECK: ${{ matrix.check }}
         run: |
           case "$CHECK" in
+            build) deps=releaseDeps ;;
             clippy) deps=debugDeps ;;
             test) deps=measuredDeps ;;
             source-lint) deps=lintDeps ;;
