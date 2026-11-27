@@ -13,6 +13,12 @@ use stella_probe::rules::{self, Hit};
 
 #[derive(Clone, clap::Args)]
 pub struct DnsArgs {
+    #[arg(
+        long = "resolver",
+        value_name = "ADDR",
+        help = "DNS server to ask instead of the public resolvers, as ip:port, repeatable"
+    )]
+    pub resolvers: Vec<std::net::SocketAddr>,
     #[arg(long, default_value_t = 6000, help = "DNS queries per second")]
     pub qps: u32,
     #[arg(long, default_value_t = 4, help = "Tries per DNS query")]
@@ -27,12 +33,17 @@ pub struct DnsArgs {
 
 impl DnsArgs {
     pub fn config(&self) -> Config {
-        Config {
+        let mut cfg = Config {
             qps: self.qps,
             tries: self.tries,
             timeout: Duration::from_millis(self.timeout_ms),
             ..Config::default()
+        };
+        if let Some(first) = self.resolvers.first() {
+            cfg.servers.clone_from(&self.resolvers);
+            cfg.ecs_server = *first;
         }
+        cfg
     }
 }
 
