@@ -1,4 +1,4 @@
-<img width="3840" height="2160" alt="Stella" src="https://github.com/user-attachments/assets/4d9e0218-3413-4854-9780-f49853d450b6" />
+<img width="3840" height="2160" alt="Stella" src=".github/assets/stella.svg" />
 
 > [!CAUTION]
 > Stella is currently in beta and under active development. Detection algorithms, features, and outputs may change, and occasional false positives can occur.
