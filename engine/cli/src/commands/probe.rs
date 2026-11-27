@@ -62,7 +62,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     drop(out);
     let rows = w.finish()?;
     eprintln!(
-        "{} pick={} review={} drop={} rows={rows} secs={:.1}",
+        "{} pick={} review={} drop={} rows={rows} secs={:.2}",
         st.line(),
         verdicts.get("PICK").unwrap_or(&0),
         verdicts.get("REVIEW").unwrap_or(&0),

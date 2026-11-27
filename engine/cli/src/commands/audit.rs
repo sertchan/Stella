@@ -300,7 +300,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     }
     let (lowered, noted) = apply(ctx)?;
     eprintln!(
-        "audit: lowered={lowered} noted={noted} secs={:.1}",
+        "audit: lowered={lowered} noted={noted} secs={:.2}",
         started.elapsed().as_secs_f64()
     );
     Ok(())

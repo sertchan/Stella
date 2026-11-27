@@ -306,7 +306,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
             drop(out);
             w.finish()?;
             eprintln!(
-                "sites={total} fetched={fetched} ids={ids} hosts={hosts} secs={:.1}",
+                "sites={total} fetched={fetched} ids={ids} hosts={hosts} secs={:.2}",
                 started.elapsed().as_secs_f64()
             );
         }
@@ -386,7 +386,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
             drop(out);
             w.finish()?;
             eprintln!(
-                "ids={total} fetched={fetched} failed={failed} sgtm-hosts={sgtm} secs={:.1}",
+                "ids={total} fetched={fetched} failed={failed} sgtm-hosts={sgtm} secs={:.2}",
                 started.elapsed().as_secs_f64()
             );
         }
@@ -608,7 +608,7 @@ pub async fn ct_zones(
     drop(out);
     w.finish()?;
     eprintln!(
-        "zones={total} ok={ok} failed={failed} names={names} secs={:.1}",
+        "zones={total} ok={ok} failed={failed} names={names} secs={:.2}",
         started.elapsed().as_secs_f64()
     );
     Ok(())

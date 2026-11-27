@@ -102,7 +102,7 @@ impl Drop for Stage {
             s.push((self.0, secs));
         }
         eprintln!(
-            "campaign: {} done in {:.1}s",
+            "campaign: {} done in {:.2} s",
             self.0,
             self.1.elapsed().as_secs_f64()
         );
@@ -298,7 +298,7 @@ async fn campaign(
         fresh.len()
     );
     eprintln!(
-        "campaign: {summary} secs={:.1}",
+        "campaign: {summary} secs={:.2}",
         started.elapsed().as_secs_f64()
     );
     Ok(summary)

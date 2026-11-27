@@ -205,7 +205,7 @@ pub async fn verify(
     drop(out);
     w.finish()?;
     eprintln!(
-        "pairs={} live={} probed={} pick={picks} review={reviews} secs={:.1}",
+        "pairs={} live={} probed={} pick={picks} review={reviews} secs={:.2}",
         pairs.len(),
         live_count(&addr, &pairs),
         sig.len(),

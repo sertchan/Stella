@@ -364,7 +364,7 @@ impl Stats {
                 .map_or(0.0, Duration::as_secs_f64)
         };
         format!(
-            "hosts={} answered={} requests={} connects={} dpi-retried={} no-pipelining={} plain-http={} host-secs={:.0} dead-secs={:.0} live-p50={:.1} p90={:.1} p99={:.1} dead: {dead}",
+            "hosts={} answered={} requests={} connects={} dpi-retried={} no-pipelining={} plain-http={} host-secs={:.2} dead-secs={:.2} live-p50={:.2} p90={:.2} p99={:.2} dead: {dead}",
             self.total,
             self.answered,
             self.requests,

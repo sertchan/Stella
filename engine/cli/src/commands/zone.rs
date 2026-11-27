@@ -126,7 +126,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     drop(out);
     w.finish()?;
     eprintln!(
-        "nsec-names={nsec_names} secs={:.1}",
+        "nsec-names={nsec_names} secs={:.2}",
         started.elapsed().as_secs_f64()
     );
     Ok(())

@@ -91,7 +91,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
             drop(out);
             w.finish()?;
             eprintln!(
-                "ok={ok} failed={failed} secs={:.1}",
+                "ok={ok} failed={failed} secs={:.2}",
                 started.elapsed().as_secs_f64()
             );
         }
@@ -153,7 +153,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
             drop(out);
             w.finish()?;
             eprintln!(
-                "scanned={scanned} games={games} urls={urls} secs={:.1}",
+                "scanned={scanned} games={games} urls={urls} secs={:.2}",
                 started.elapsed().as_secs_f64()
             );
         }
@@ -290,7 +290,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
             drop(out);
             w.finish()?;
             eprintln!(
-                "context in {} secs={:.1}",
+                "context in {} secs={:.2}",
                 ctx_dir.display(),
                 started.elapsed().as_secs_f64()
             );

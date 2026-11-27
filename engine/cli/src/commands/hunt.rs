@@ -169,7 +169,7 @@ pub async fn hunt(ctx: &mut Context, args: &Args, input: Vec<String>) -> Result<
             eprintln!("round={} covered-by-cname-elsewhere={covered}", r + 1);
         }
         eprintln!(
-            "round={} fresh={fresh_count} live={live} probed={} zone-followups={followed} sampled-out={} picks={picks} secs={:.1} {}",
+            "round={} fresh={fresh_count} live={live} probed={} zone-followups={followed} sampled-out={} picks={picks} secs={:.2} {}",
             r + 1,
             probing - skipped.len(),
             skipped.len(),
@@ -213,6 +213,6 @@ pub async fn hunt(ctx: &mut Context, args: &Args, input: Vec<String>) -> Result<
     }
     drop(out);
     w.finish()?;
-    eprintln!("picks={picks} secs={:.1}", started.elapsed().as_secs_f64());
+    eprintln!("picks={picks} secs={:.2}", started.elapsed().as_secs_f64());
     Ok(picks)
 }

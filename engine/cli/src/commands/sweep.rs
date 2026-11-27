@@ -175,7 +175,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     drop(out);
     w.finish()?;
     eprintln!(
-        "blocks={} addresses={total} answered={answered} names-unlisted={} secs={:.1}",
+        "blocks={} addresses={total} answered={answered} names-unlisted={} secs={:.2}",
         chosen.len(),
         fresh.len(),
         started.elapsed().as_secs_f64()

@@ -36,7 +36,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     drop(out);
     let rows = w.finish()?;
     eprintln!(
-        "names={n} answered={answered} timeouts={timeouts} rows={rows} secs={:.1}",
+        "names={n} answered={answered} timeouts={timeouts} rows={rows} secs={:.2}",
         started.elapsed().as_secs_f64()
     );
     Ok(())

@@ -190,7 +190,7 @@ pub async fn learn(ctx: &mut Context, dns: &Config, args: &Learn) -> Result<usiz
     )?;
     let by = |s: &str| all.values().filter(|v| v.source == s).count();
     eprintln!(
-        "cname vendors: resolved={} learned={} adguard-trackers={} adguard-ads={} secs={:.1}",
+        "cname vendors: resolved={} learned={} adguard-trackers={} adguard-ads={} secs={:.2}",
         res.len(),
         by("learned"),
         by("adguard-trackers"),

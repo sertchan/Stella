@@ -106,7 +106,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
     drop(out);
     w.finish()?;
     eprintln!(
-        "hosts={} regional-addresses={probed} new-reviews={fresh} secs={:.1}",
+        "hosts={} regional-addresses={probed} new-reviews={fresh} secs={:.2}",
         hosts.len(),
         started.elapsed().as_secs_f64()
     );

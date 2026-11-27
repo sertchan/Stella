@@ -99,7 +99,7 @@ pub async fn recheck(
     }
     w.finish()?;
     eprintln!(
-        "picks={total} resolving={alive} first-miss={first} stale={stale} secs={:.1} {}",
+        "picks={total} resolving={alive} first-miss={first} stale={stale} secs={:.2} {}",
         started.elapsed().as_secs_f64(),
         st.line()
     );
