@@ -30,10 +30,13 @@ pkgs.writeShellApplication {
       branch="ci/''${sha:0:12}"
       echo
       echo "land: $sha $subject"
+      mapfile -t seen < <(gh run list --workflow ci.yml --commit "$sha" --event push --json databaseId --jq '.[].databaseId')
       git push -q origin "$sha:refs/heads/$branch"
       id=""
       for _ in $(seq 60); do
-        id=$(gh run list --workflow ci.yml --commit "$sha" --event push --json databaseId --jq '.[0].databaseId // empty')
+        id=$(gh run list --workflow ci.yml --commit "$sha" --event push --json databaseId --jq '.[].databaseId' |
+          grep -vxF -f <(printf '%s\n' "''${seen[@]}") |
+          head -n 1 || true)
         [ -n "$id" ] && break
         sleep 5
       done
