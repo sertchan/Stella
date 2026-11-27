@@ -148,7 +148,7 @@ fn outdated_reads_every_tool() {
     );
     s.write(
         "tools/gh",
-        "#!/bin/sh\ncase \"$2\" in\n  *releases/latest) echo v9 ;;\n  *) echo newsha ;;\nesac\n",
+        "#!/bin/sh\ncase \"$2 $4\" in\n  *\"releases/latest .tag_name\") echo v9 ;;\n  *\"releases/latest .body\") echo '> This action is deprecated in favor of actions/attest.' ;;\n  *) echo newsha ;;\nesac\n",
     );
     for t in ["cargo", "nix", "gh"] {
         let mut perm = std::fs::metadata(tools.join(t))
@@ -176,6 +176,7 @@ fn outdated_reads_every_tool() {
         "error[outdated-dependency] Cargo.toml stella -> clap",
         "error[outdated-flake-input] flake.lock nixpkgs",
         "error[outdated-action] .github/workflows/ci.yml actions/checkout",
+        "error[deprecated-action] .github/workflows/ci.yml actions/checkout",
     ] {
         assert!(text.contains(rule), "{rule} missing in {text}");
     }

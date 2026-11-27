@@ -11,6 +11,7 @@ const WHY_LOCK: &str = "Stella builds against the newest compatible release of e
 const WHY_MAJOR: &str = "Direct dependencies follow the newest stable major release. Old majors stop getting fixes, and every month of lag makes the upgrade larger and riskier.";
 const WHY_FLAKE: &str = "Nix inputs pin the compiler, the system libraries and every tool. An old pin means an old Rust toolchain and old packages with known security issues.";
 const WHY_ACTION: &str = "CI actions run with access to the repository. They are pinned to the commit of their newest stable release, so that fixes arrive and nothing moves without a review.";
+const WHY_DEPRECATED: &str = "A deprecated action stops getting fixes and its maintainers already point to a replacement. Staying on it means running code in CI that nobody looks after.";
 
 fn run(dir: &Path, cmd: &str, args: &[&str]) -> Result<(bool, String, String)> {
     let out = Command::new(cmd)
@@ -206,14 +207,15 @@ pub fn actions(dir: &Path) -> Result<Vec<Finding>> {
             pins.entry((repo, rev)).or_insert(rel.clone());
         }
     }
-    let latest: Vec<Result<(String, String)>> = std::thread::scope(|s| {
+    let latest: Vec<Result<(String, String, Option<String>)>> = std::thread::scope(|s| {
         let jobs: Vec<_> = pins
             .keys()
             .map(|(repo, _)| {
                 s.spawn(move || {
                     let tag = gh(dir, &format!("repos/{repo}/releases/latest"), ".tag_name")?;
                     let sha = gh(dir, &format!("repos/{repo}/commits/{tag}"), ".sha")?;
-                    Ok((tag, sha))
+                    let notes = gh(dir, &format!("repos/{repo}/releases/latest"), ".body")?;
+                    Ok((tag, sha, deprecation(&notes)))
                 })
             })
             .collect();
@@ -226,7 +228,17 @@ pub fn actions(dir: &Path) -> Result<Vec<Finding>> {
     });
     let mut out = Vec::new();
     for (((repo, rev), file), got) in pins.into_iter().zip(latest) {
-        let (tag, sha) = got?;
+        let (tag, sha, deprecated) = got?;
+        if let Some(notice) = deprecated {
+            out.push(
+                Finding::new("deprecated-action", format!("{file} {repo}"), WHY_DEPRECATED)
+                    .found(notice)
+                    .expected("an action that its maintainers still support")
+                    .fix(format!(
+                        "Move to the action that the {tag} release notes of {repo} name as its replacement."
+                    )),
+            );
+        }
         if rev != sha {
             out.push(
                 Finding::new("outdated-action", format!("{file} {repo}"), WHY_ACTION)
@@ -237,6 +249,14 @@ pub fn actions(dir: &Path) -> Result<Vec<Finding>> {
         }
     }
     Ok(out)
+}
+
+pub fn deprecation(notes: &str) -> Option<String> {
+    notes
+        .lines()
+        .map(|l| l.trim_start_matches(['>', ' ']).trim())
+        .find(|l| l.to_ascii_lowercase().contains("deprecat"))
+        .map(str::to_string)
 }
 
 pub fn all(dir: &Path, grace_days: i64, with_actions: bool) -> Result<Vec<Finding>> {
@@ -321,6 +341,16 @@ mod tests {
         assert_eq!(flake_lag(&old, &new, 7), [("nixpkgs".to_string(), 10)]);
         assert!(lock_times("{}").is_err());
         Ok(())
+    }
+
+    #[test]
+    fn finds_deprecation_notices() {
+        let notes = "> [!WARNING]\n> As of version 4.0.0 this action is being deprecated in favor of actions/attest.\n";
+        assert_eq!(
+            deprecation(notes).as_deref(),
+            Some("As of version 4.0.0 this action is being deprecated in favor of actions/attest.")
+        );
+        assert_eq!(deprecation("## What's Changed\n* Bump deps\n"), None);
     }
 
     #[test]
