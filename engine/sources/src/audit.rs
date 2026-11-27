@@ -103,14 +103,26 @@ pub fn clean_host(token: &str) -> Option<String> {
     stella_core::name::normalize(host)
 }
 
-fn domain_block(body: &str) -> Option<Vec<String>> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IssueEntry {
+    pub host: String,
+    pub note: String,
+}
+
+fn domain_heading(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.starts_with("###") && l.contains("domain") && l.contains("block") && !l.contains("category")
+}
+
+pub fn issue_entries(body: &str) -> Vec<IssueEntry> {
     let mut lines = body.lines();
-    lines.find(|l| {
-        let l = l.to_ascii_lowercase();
-        l.starts_with("###") && l.contains("domain") && l.contains("block")
-    })?;
-    let mut out = Vec::new();
+    if lines.find(|l| domain_heading(l)).is_none() {
+        return Vec::new();
+    }
+    let mut out: Vec<IssueEntry> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     let mut fenced = false;
+    let mut note = String::new();
     for l in lines {
         let t = l.trim();
         if t.starts_with("```") {
@@ -123,9 +135,92 @@ fn domain_block(body: &str) -> Option<Vec<String>> {
         if t.starts_with("###") {
             break;
         }
-        out.extend(t.split([' ', '\t', ',']).filter_map(clean_host));
+        if let Some(c) = t.strip_prefix('#') {
+            note = c.trim().to_string();
+            continue;
+        }
+        for host in t.split([' ', '\t', ',']).filter_map(clean_host) {
+            if seen.insert(host.clone()) {
+                out.push(IssueEntry {
+                    host,
+                    note: note.clone(),
+                });
+            }
+        }
     }
-    (!out.is_empty()).then_some(out)
+    out
+}
+
+fn domain_block(body: &str) -> Option<Vec<String>> {
+    let hosts: Vec<String> = issue_entries(body).into_iter().map(|e| e.host).collect();
+    (!hosts.is_empty()).then_some(hosts)
+}
+
+pub struct AuthoredIssue {
+    pub number: i64,
+    pub created: String,
+    pub title: String,
+    pub kind: &'static str,
+    pub outcome: &'static str,
+    pub entries: Vec<IssueEntry>,
+}
+
+pub fn authored_issues_url(author: &str, page: usize) -> String {
+    format!(
+        "https://api.github.com/repos/{REPO}/issues?creator={author}&state=all&sort=created&direction=asc&per_page={PER_PAGE}&page={page}"
+    )
+}
+
+pub fn page_len(body: &[u8]) -> usize {
+    serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|v| v.as_array().map(Vec::len))
+        .unwrap_or(0)
+}
+
+pub fn parse_authored(body: &[u8]) -> Result<Vec<AuthoredIssue>> {
+    let v: Value = serde_json::from_slice(body)?;
+    let Some(items) = v.as_array() else {
+        bail!(
+            "unexpected reply: {}",
+            String::from_utf8_lossy(&body[..body.len().min(200)])
+        );
+    };
+    Ok(items
+        .iter()
+        .filter(|i| i.get("pull_request").is_none())
+        .filter_map(|i| {
+            let labels: Vec<&str> = i
+                .get("labels")?
+                .as_array()?
+                .iter()
+                .filter_map(|l| l.get("name").and_then(Value::as_str))
+                .collect();
+            let kind = if labels.contains(&"allow") {
+                "allow"
+            } else if labels.contains(&"deny") {
+                "deny"
+            } else {
+                "other"
+            };
+            Some(AuthoredIssue {
+                number: i.get("number")?.as_i64()?,
+                created: i
+                    .get("created_at")
+                    .and_then(Value::as_str)
+                    .map_or(String::new(), |c| c.chars().take(10).collect()),
+                title: i.get("title")?.as_str()?.to_string(),
+                kind,
+                outcome: outcome(
+                    kind,
+                    i.get("state")?.as_str()?,
+                    i.get("state_reason").and_then(Value::as_str),
+                    &labels,
+                ),
+                entries: issue_entries(i.get("body").and_then(Value::as_str).unwrap_or("")),
+            })
+        })
+        .collect())
 }
 
 pub fn issue_hosts(title: &str, body: &str, listed_tld: impl Fn(&str) -> bool) -> Vec<String> {
@@ -326,6 +421,59 @@ pub fn exceptions(text: &str, kind: ListKind) -> Vec<(String, &'static str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_issue_entries_with_group_notes() {
+        let body = "### Prerequisites\n\n- [x] ok\n\n### Which category do the domain(s) to be blocked belong to?\n\nTracking\n\n### Which domain(s) should be blocked?\n\n```yaml\n# Snowplow collectors: GET /i answers a gif\ni.shop.com\nsp.shop.com, sp.shop.com\n# Self-hosted Umami\nstats.blog.io\n```\n\n### Why\nx.io\n";
+        assert_eq!(
+            issue_entries(body),
+            [
+                IssueEntry {
+                    host: "i.shop.com".into(),
+                    note: "Snowplow collectors: GET /i answers a gif".into()
+                },
+                IssueEntry {
+                    host: "sp.shop.com".into(),
+                    note: "Snowplow collectors: GET /i answers a gif".into()
+                },
+                IssueEntry {
+                    host: "stats.blog.io".into(),
+                    note: "Self-hosted Umami".into()
+                },
+            ]
+        );
+        assert!(issue_entries("no heading\na.io\n").is_empty());
+        assert_eq!(domain_block(body).map(|v| v.len()), Some(3));
+    }
+
+    #[test]
+    fn reads_authored_issues() -> Result<()> {
+        let json = br#"[
+            {"number": 12398, "title": "Collectors", "created_at": "2026-11-16T10:00:00Z", "state": "closed", "state_reason": "completed", "labels": [{"name": "deny"}], "body": "\u0023\u0023\u0023 Which domain(s) should be blocked?\n```\ni.shop.com\n```"},
+            {"number": 12452, "title": "False positive", "state": "closed", "state_reason": "completed", "labels": [{"name": "allow"}], "body": "\u0023\u0023\u0023 Which domain(s) need to be unblocked?\n```yaml\nrudder.stats.fm\n```"},
+            {"number": 1, "title": "PR", "pull_request": {}, "labels": []}
+        ]"#;
+        let got = parse_authored(json)?;
+        assert_eq!(got.len(), 2);
+        assert_eq!(
+            (got[0].number, got[0].kind, got[0].outcome),
+            (12398, "deny", GRANTED)
+        );
+        assert_eq!(got[0].entries[0].host, "i.shop.com");
+        assert_eq!(
+            (got[0].created.as_str(), got[1].created.as_str()),
+            ("2026-11-16", "")
+        );
+        assert_eq!(
+            (got[1].kind, got[1].entries[0].host.as_str()),
+            ("allow", "rudder.stats.fm")
+        );
+        assert!(authored_issues_url("sertchan", 2).contains("creator=sertchan&state=all"));
+        assert!(parse_authored(b"{}").is_err());
+        assert_eq!(page_len(json), 3);
+        assert_eq!(page_len(b"nope"), 0);
+        Ok(())
+    }
 
     #[test]
     fn reads_issue_domains_and_outcomes() {
