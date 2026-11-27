@@ -5,7 +5,7 @@ on:
     branches: ["ci/**"]
   pull_request:
   schedule:
-    - cron: "17 4 * * 1"
+    - cron: "17 4 * * *"
   workflow_dispatch:
 
 permissions:
@@ -18,10 +18,40 @@ jobs:
     timeout-minutes: 10
     outputs:
       checks: ${{ steps.list.outputs.checks }}
+      lists: ${{ steps.lists.outputs.changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - id: lists
+        name: decide whether the published lists changed
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          case "$EVENT" in
+            schedule | workflow_dispatch)
+              changed=true
+              why="a $EVENT run checks every list"
+              ;;
+            pull_request)
+              changed=$(git diff --quiet "$BASE" "$HEAD" -- lists && echo false || echo true)
+              why="lists/ compared between $BASE and $HEAD"
+              ;;
+            *)
+              if [ "$BEFORE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BEFORE" 2> /dev/null; then
+                BEFORE=$(git merge-base origin/main "$AFTER" 2> /dev/null || echo "$AFTER~1")
+              fi
+              changed=$(git diff --quiet "$BEFORE" "$AFTER" -- lists && echo false || echo true)
+              why="lists/ compared between $BEFORE and $AFTER"
+              ;;
+          esac
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          printf '%-9s%s\n' lists "changed=$changed, $why, dead-domains runs only when lists changed or on a schedule"
       - uses: ./.github/actions/nix
       - id: list
         name: list flake checks
@@ -291,10 +321,54 @@ jobs:
           { echo '```text'; cat "$report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+  dead-domains:
+    name: dead-domains
+    needs: plan
+    if: needs.plan.outputs.lists == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/nix
+        with:
+          deps: releaseDeps
+      - name: build stella
+        run: nix build --print-build-logs --no-link .#stella
+      - name: resolve every published entry
+        run: |
+          report="$RUNNER_TEMP/report.txt"
+          rows="$RUNNER_TEMP/rows.tsv"
+          set +e
+          nix run .#stella -- --state "$RUNNER_TEMP/state" lists check > "$rows" 2> "$RUNNER_TEMP/err.txt"
+          st=$?
+          set -e
+          {
+            printf '%-9s%s\n' check dead-domains
+            printf '%-9s%s\n' purpose "Every published entry still exists. A dead name blocks nothing and costs every blocker memory and lookup time."
+            printf '%-9s%s\n' tool "stella lists check, Stella's own resolver to public resolvers, NXDOMAIN twice in a row means dead"
+            printf '%-9s%s\n' scope "$(wc -l < "$rows") entries under lists"
+            echo
+            awk -F'\t' '{ n[$3]++ } END { for (s in n) printf "  %-20s %6d\n", s, n[s] }' "$rows" | sort
+            echo
+            awk -F'\t' '$3 != "alive" { printf "  %-50s %-24s %-18s %s\n", $1, $2, $3, $4 }' "$rows" | head -200
+            echo
+            cat "$RUNNER_TEMP/err.txt"
+            echo
+            if [ "$st" -eq 0 ]; then echo "result   dead-domains passed"; else echo "result   dead-domains failed, see the dead entries above"; fi
+          } > "$report"
+          cat "$report"
+          { echo '```text'; head -n 300 "$report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$st" -ne 0 ]; then
+            echo "::error title=dead-domains found dead entries::$(grep -m 1 -A4 '^error\[dead-entry\]' "$RUNNER_TEMP/err.txt" | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')"
+          fi
+          exit "$st"
+
   ci-success:
     name: ci-success
     if: always()
-    needs: [plan, check, commitlint, outdated, cargo-audit]
+    needs: [plan, check, commitlint, outdated, cargo-audit, dead-domains]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -337,6 +411,8 @@ jobs:
               if [ "$result" = success ]; then
                 ok=yes
               elif [ "$result" = skipped ] && [ "$job" = commitlint ] && [ "$EVENT" != push ] && [ "$EVENT" != pull_request ]; then
+                ok=yes
+              elif [ "$result" = skipped ] && [ "$job" = dead-domains ]; then
                 ok=yes
               fi
               printf '  %-16s %-10s %s\n' "$job" "$result" "$([ "$ok" = yes ] && echo accepted || echo rejected)"
