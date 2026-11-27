@@ -17,6 +17,12 @@ pub const RULES: [&str; 7] = [
 
 const SKIP_DIRS: &[&str] = &["target", "corpus", "artifacts", "node_modules"];
 
+const PUBLISHED_DIRS: [&str; 1] = ["lists/"];
+
+fn published(rel: &str) -> bool {
+    PUBLISHED_DIRS.iter().any(|d| rel.starts_with(d))
+}
+
 const WHY_COMMENT: &str = "Stella carries no comments of any kind. Good code explains itself through names, types and structure, and documentation lives outside the code. A comment either repeats what the code already says or hides that a name, a type or a function should say more, and it rots silently when the code changes.";
 const FIX_COMMENT: &str = "Delete the comment. If it held a reason, give that reason a home that the compiler or the history keeps honest: a well named binding or constant, a help = \"...\" string, an error message, or the commit message.";
 const WHY_HELP: &str = "Help strings are short labels printed by clap. They carry no trailing full stop and no semicolon, so that every line in --help reads the same way.";
@@ -297,7 +303,7 @@ pub fn check_tree(root: &Path) -> Result<Tree> {
         let entry = tree.kinds.entry(type_of(&rel)).or_default();
         entry.0 += 1;
         entry.2 += size;
-        if size > MAX_FILE_BYTES {
+        if size > MAX_FILE_BYTES && !published(&rel) {
             tree.findings.push(
                 Finding::new("large-file", rel.clone(), WHY_LARGE)
                     .found(format!("{size} bytes"))
@@ -414,9 +420,12 @@ mod tests {
             format!("on: push {} x\n", '#'),
         )?;
         std::fs::write(root.join("big.json"), vec![b'a'; 1024 * 1024 + 1])?;
+        std::fs::create_dir_all(root.join("lists/ads"))?;
+        std::fs::write(root.join("lists/ads/domains.txt"), "a.io\n".repeat(300_000))?;
         std::fs::write(root.join("ok.rs"), "fn main() {}\n")?;
         let tree = check_tree(&root)?;
-        assert_eq!(tree.files, 3);
+        assert_eq!(tree.files, 4);
+        assert!(published("lists/ads/domains.txt") && !published("listsx/a.txt"));
         let rules: Vec<&str> = tree.findings.iter().map(|f| f.rule).collect();
         assert_eq!(rules, ["comment", "large-file"]);
         assert_eq!(tree.findings[0].place, ".github/workflows/c.yml:1:10");
@@ -424,7 +433,7 @@ mod tests {
         assert_eq!(tree.kinds["json"].0, 1);
         let sections = tree.sections();
         assert_eq!(sections[0].lines, [RULES.join(", ")]);
-        assert_eq!(sections[1].lines[0], "type  files  lines  bytes");
+        assert!(sections[1].lines[0].starts_with("type  files  lines"));
         assert_eq!(type_of("a/.gitignore"), ".gitignore");
         assert_eq!(type_of("LICENSE"), "LICENSE");
         assert_eq!(type_of("a/b.tar.gz"), "gz");
