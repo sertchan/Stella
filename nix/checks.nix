@@ -24,6 +24,7 @@ in {
     // {
       cargoArtifacts = rust.debugDeps;
       cargoClippyExtraArgs = "--all-targets -- -D warnings";
+      doInstallCargoArtifacts = false;
     });
   deny = rust.craneLib.cargoDeny (rust.common
     // {
@@ -40,6 +41,14 @@ in {
   tests = rust.craneLib.cargoNextest (rust.debug
     // {
       cargoArtifacts = rust.debugDeps;
-      cargoNextestExtraArgs = "--no-fail-fast";
+      cargoNextestExtraArgs = "--no-fail-fast --profile ci";
+      doInstallCargoArtifacts = false;
+      preCheck = ''
+        mkdir -p .config
+        printf '[profile.ci.junit]\npath = "junit.xml"\n' > .config/nextest.toml
+      '';
+      postInstall = ''
+        cp target/nextest/ci/junit.xml $out/junit.xml
+      '';
     });
 }
