@@ -350,8 +350,23 @@ fn store_commands_read_and_update_the_database() {
     st.stella(&["export", "--unfiled"]);
     let out = st.dir.join("pub").display().to_string();
     st.stella(&["publish", "--dir", &out]);
-    let published = std::fs::read_dir(&out).expect("publish dir").count();
-    assert!(published >= 4, "{published} files");
+    for list in stella_core::category::Category::ALL {
+        for format in stella_core::list::Format::ALL {
+            let p = st
+                .dir
+                .join("pub")
+                .join(list.slug())
+                .join(format.file_name());
+            let text = std::fs::read_to_string(&p).expect("published list");
+            assert!(text.contains(list.title()), "{}", p.display());
+        }
+    }
+    let counts = std::fs::read_to_string(st.dir.join("pub/counts.tsv")).expect("counts");
+    assert!(
+        counts.starts_with("list\tzones\thosts\tentries\nads\t"),
+        "{counts}"
+    );
+    st.stella(&["export", "--category", "tracker", "--format", "rpz"]);
     st.stella(&["pivot"]);
     st.stella(&["pivot", "--with-review", "--max-ip", "2"]);
     st.stella(&["mates"]);

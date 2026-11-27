@@ -8,8 +8,9 @@ mod e2e;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
-    allow, apk, audit, breakage, campaign, clusters, crawl, fuse, geo, get, hunt, known, mates,
-    pivot, probe, recheck, records, resolve, review, source, stats, sweep, twins, zone,
+    allow, apk, audit, breakage, campaign, clusters, crawl, export, fuse, geo, get, hunt, known,
+    mates, pivot, probe, publish, recheck, records, resolve, review, source, stats, sweep, twins,
+    zone,
 };
 use stella_core::config::Paths;
 
@@ -114,11 +115,11 @@ enum Cmd {
     #[command(about = "List hits with their evidence")]
     Review(review::ReviewArgs),
     #[command(about = "Print picked hosts that no reference list covers")]
-    Export(review::ExportArgs),
+    Export(export::ExportArgs),
     #[command(
-        about = "Write every list format with metadata and counts for the picks no reference list covers"
+        about = "Write the ads, tracker, telemetry and self-hosted telemetry lists in every format with metadata and counts"
     )]
-    Publish(review::PublishArgs),
+    Publish(publish::PublishArgs),
 }
 
 fn main() -> Result<()> {
@@ -168,9 +169,9 @@ fn run(cli: Cli) -> Result<()> {
             Cmd::Stats(a) => stats::run(&ctx, &a),
             Cmd::Clusters(a) => clusters::run(&ctx, a),
             Cmd::Twins(a) => twins::run(&mut ctx, a).await,
-            Cmd::Review(a) => review::review(&ctx, &a),
-            Cmd::Export(a) => review::export(&ctx, &a),
-            Cmd::Publish(a) => review::publish(&ctx, &a),
+            Cmd::Review(a) => review::run(&ctx, &a),
+            Cmd::Export(a) => export::run(&ctx, &a),
+            Cmd::Publish(a) => publish::run(&ctx, &a),
         }
     })
 }
