@@ -1,8 +1,19 @@
-use crate::report::Finding;
+use crate::report::{Finding, Section, table};
 use anyhow::Result;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
+
+pub const RULES: [&str; 7] = [
+    "comment",
+    "lint-suppression",
+    "help-text",
+    "marker",
+    "whitespace",
+    "final-newline",
+    "large-file",
+];
 
 const SKIP_DIRS: &[&str] = &["target", "corpus", "artifacts", "node_modules"];
 
@@ -225,7 +236,46 @@ fn git_files(root: &Path) -> Option<Vec<PathBuf>> {
     Some(files)
 }
 
-pub fn check_tree(root: &Path) -> Result<(usize, Vec<Finding>)> {
+#[derive(Default)]
+pub struct Tree {
+    pub files: usize,
+    pub kinds: BTreeMap<String, (usize, usize, u64)>,
+    pub findings: Vec<Finding>,
+}
+
+impl Tree {
+    pub fn sections(&self) -> Vec<Section> {
+        let rows: Vec<[String; 4]> = self
+            .kinds
+            .iter()
+            .map(|(k, (files, lines, bytes))| {
+                [
+                    k.clone(),
+                    files.to_string(),
+                    lines.to_string(),
+                    bytes.to_string(),
+                ]
+            })
+            .collect();
+        vec![
+            Section::new("rules", vec![RULES.join(", ")]),
+            Section::new(
+                "files by type",
+                table(["type", "files", "lines", "bytes"], &rows),
+            ),
+        ]
+    }
+}
+
+fn type_of(rel: &str) -> String {
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => ext.to_string(),
+        _ => name.to_string(),
+    }
+}
+
+pub fn check_tree(root: &Path) -> Result<Tree> {
     let files = if let Some(f) = git_files(root) {
         f
     } else {
@@ -233,7 +283,10 @@ pub fn check_tree(root: &Path) -> Result<(usize, Vec<Finding>)> {
         walk(root, &mut f)?;
         f
     };
-    let mut out = Vec::new();
+    let mut tree = Tree {
+        files: files.len(),
+        ..Tree::default()
+    };
     for path in &files {
         let rel = path
             .strip_prefix(root)
@@ -241,8 +294,11 @@ pub fn check_tree(root: &Path) -> Result<(usize, Vec<Finding>)> {
             .to_string_lossy()
             .into_owned();
         let size = std::fs::metadata(path)?.len();
+        let entry = tree.kinds.entry(type_of(&rel)).or_default();
+        entry.0 += 1;
+        entry.2 += size;
         if size > MAX_FILE_BYTES {
-            out.push(
+            tree.findings.push(
                 Finding::new("large-file", rel.clone(), WHY_LARGE)
                     .found(format!("{size} bytes"))
                     .expected(format!("at most {MAX_FILE_BYTES} bytes"))
@@ -253,10 +309,11 @@ pub fn check_tree(root: &Path) -> Result<(usize, Vec<Finding>)> {
             continue;
         }
         if let Ok(text) = std::fs::read_to_string(path) {
-            check_text(&rel, &text, &mut out);
+            entry.1 += text.lines().count();
+            check_text(&rel, &text, &mut tree.findings);
         }
     }
-    Ok((files.len(), out))
+    Ok(tree)
 }
 
 #[cfg(test)]
@@ -358,11 +415,19 @@ mod tests {
         )?;
         std::fs::write(root.join("big.json"), vec![b'a'; 1024 * 1024 + 1])?;
         std::fs::write(root.join("ok.rs"), "fn main() {}\n")?;
-        let (n, found) = check_tree(&root)?;
-        assert_eq!(n, 3);
-        let rules: Vec<&str> = found.iter().map(|f| f.rule).collect();
+        let tree = check_tree(&root)?;
+        assert_eq!(tree.files, 3);
+        let rules: Vec<&str> = tree.findings.iter().map(|f| f.rule).collect();
         assert_eq!(rules, ["comment", "large-file"]);
-        assert_eq!(found[0].place, ".github/workflows/c.yml:1:10");
+        assert_eq!(tree.findings[0].place, ".github/workflows/c.yml:1:10");
+        assert_eq!(tree.kinds["rs"], (1, 1, 13));
+        assert_eq!(tree.kinds["json"].0, 1);
+        let sections = tree.sections();
+        assert_eq!(sections[0].lines, [RULES.join(", ")]);
+        assert_eq!(sections[1].lines[0], "type  files  lines  bytes");
+        assert_eq!(type_of("a/.gitignore"), ".gitignore");
+        assert_eq!(type_of("LICENSE"), "LICENSE");
+        assert_eq!(type_of("a/b.tar.gz"), "gz");
         std::fs::remove_dir_all(root)?;
         Ok(())
     }

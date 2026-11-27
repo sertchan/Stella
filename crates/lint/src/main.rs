@@ -5,7 +5,7 @@ mod source;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use report::Outcome;
+use report::{Outcome, Section, table};
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -68,19 +68,31 @@ enum Cmd {
     },
 }
 
+fn rules_section(rules: &[&str]) -> Section {
+    Section::new("rules", vec![rules.join(", ")])
+}
+
 fn commits_outcome(ranges: &[String]) -> Result<Outcome> {
     let crates = commits::crates_in(&std::env::current_dir()?);
     let mut findings = Vec::new();
+    let mut sections = vec![rules_section(&commits::RULES)];
     let mut count = 0usize;
     for range in ranges {
+        let mut rows = Vec::new();
         for c in commits::load(range)? {
             count += 1;
-            findings.extend(commits::check_commit(&c, &crates));
+            let found = commits::check_commit(&c, &crates);
+            rows.push(commits::row(&c, found.len()));
+            findings.extend(found);
         }
+        let mut lines = vec![format!("{} commit(s), oldest first", rows.len())];
+        lines.extend(table(commits::COLUMNS, &rows));
+        sections.push(Section::new(range.clone(), lines));
     }
     Ok(Outcome {
         tool: "commitlint",
         checked: format!("{count} commit(s) in {}", ranges.join(" and ")),
+        sections,
         findings,
     })
 }
@@ -88,11 +100,12 @@ fn commits_outcome(ranges: &[String]) -> Result<Outcome> {
 fn run(cli: Cli) -> Result<bool> {
     let outcome = match cli.cmd {
         Cmd::Sources { dir } => {
-            let (n, findings) = source::check_tree(&dir)?;
+            let tree = source::check_tree(&dir)?;
             Outcome {
                 tool: "source-lint",
-                checked: format!("{n} files under {}", dir.display()),
-                findings,
+                checked: format!("{} files under {}", tree.files, dir.display()),
+                sections: tree.sections(),
+                findings: tree.findings,
             }
         }
         Cmd::CommitMsg { file } => {
@@ -112,9 +125,15 @@ fn run(cli: Cli) -> Result<bool> {
                 &files,
                 &crates,
             ));
+            let mut staged = vec![format!("subject  {subject}")];
+            staged.extend(files.iter().map(|f| format!("staged   {f}")));
             Outcome {
                 tool: "commitlint",
                 checked: format!("the new commit message and {} staged file(s)", files.len()),
+                sections: vec![
+                    rules_section(&commits::RULES),
+                    Section::new("new commit", staged),
+                ],
                 findings,
             }
         }
@@ -128,11 +147,15 @@ fn run(cli: Cli) -> Result<bool> {
             dir,
             grace_days,
             no_actions,
-        } => Outcome {
-            tool: "outdated",
-            checked: "lock files, direct dependencies, flake inputs and CI actions".into(),
-            findings: outdated::all(&dir, grace_days, !no_actions)?,
-        },
+        } => {
+            let (sections, findings) = outdated::all(&dir, grace_days, !no_actions)?;
+            Outcome {
+                tool: "outdated",
+                checked: "lock files, direct dependencies, flake inputs and CI actions".into(),
+                sections,
+                findings,
+            }
+        }
     };
     Ok(outcome.emit())
 }

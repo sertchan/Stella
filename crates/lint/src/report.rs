@@ -60,15 +60,61 @@ fn escape(v: &str) -> String {
         .replace('\n', "%0A")
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Section {
+    pub title: String,
+    pub lines: Vec<String>,
+}
+
+impl Section {
+    pub fn new(title: impl Into<String>, lines: Vec<String>) -> Self {
+        Self {
+            title: title.into(),
+            lines,
+        }
+    }
+}
+
+pub fn table<const N: usize>(header: [&str; N], rows: &[[String; N]]) -> Vec<String> {
+    let mut width = header.map(str::len);
+    for row in rows {
+        for (w, cell) in width.iter_mut().zip(row) {
+            *w = (*w).max(cell.chars().count());
+        }
+    }
+    let line = |cells: [&str; N]| {
+        let mut s = String::new();
+        for (cell, w) in cells.iter().zip(width) {
+            let _ = write!(s, "{cell:<w$}  ");
+        }
+        s.trim_end().to_string()
+    };
+    let mut out = vec![line(header)];
+    out.extend(rows.iter().map(|r| line(r.each_ref().map(String::as_str))));
+    out
+}
+
 pub struct Outcome {
     pub tool: &'static str,
     pub checked: String,
+    pub sections: Vec<Section>,
     pub findings: Vec<Finding>,
 }
 
 impl Outcome {
     pub fn text(&self) -> String {
         let mut s = String::new();
+        for section in &self.sections {
+            let _ = writeln!(s, "{}: {}", self.tool, section.title);
+            for line in &section.lines {
+                if line.is_empty() {
+                    s.push('\n');
+                } else {
+                    let _ = writeln!(s, "  {line}");
+                }
+            }
+            s.push('\n');
+        }
         for f in &self.findings {
             s.push_str(&f.render());
             s.push('\n');
@@ -127,16 +173,37 @@ mod tests {
         let ok = Outcome {
             tool: "source-lint",
             checked: "12 files".into(),
+            sections: vec![Section::new("files", vec!["rs  12".into(), String::new()])],
             findings: Vec::new(),
         };
-        assert_eq!(ok.text(), "source-lint: ok, 12 files\n");
+        assert_eq!(
+            ok.text(),
+            "source-lint: files\n  rs  12\n\n\nsource-lint: ok, 12 files\n"
+        );
         let bad = Outcome {
             tool: "source-lint",
             checked: "12 files".into(),
+            sections: Vec::new(),
             findings: vec![f],
         };
         assert!(bad.text().ends_with("rejected, 1 problem(s) in 12 files\n"));
         assert!(!bad.emit());
         assert_eq!(escape("a%b\nc"), "a%25b%0Ac");
+    }
+
+    #[test]
+    fn aligns_table_columns() {
+        let rows = [
+            ["clap".to_string(), "4.6.10".to_string(), "ok".to_string()],
+            ["x".to_string(), "1".to_string(), "outdated".to_string()],
+        ];
+        assert_eq!(
+            table(["dependency", "version", "result"], &rows),
+            [
+                "dependency  version  result",
+                "clap        4.6.10   ok",
+                "x           1        outdated"
+            ]
+        );
     }
 }

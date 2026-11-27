@@ -84,6 +84,9 @@ fn sources_reports_and_passes() {
     let clean = lint(&s.0, &["sources", "."], "", None);
     assert_eq!(clean.status.code(), Some(0), "{}", stderr(&clean));
     assert!(stderr(&clean).contains("source-lint: ok, 1 files"));
+    assert!(stderr(&clean).contains(
+        "source-lint: files by type\n  type  files  lines  bytes\n  rs    1      1      13\n"
+    ));
     s.write("bad.toml", &format!("x = 1 {} why\n", '#'));
     let bad = lint(&s.0, &["sources", "."], "", None);
     assert_eq!(bad.status.code(), Some(1));
@@ -120,6 +123,14 @@ fn commit_messages_and_ranges_are_checked() {
     assert!(text.contains("error[subject-format]"), "{text}");
     assert!(text.contains("error[unsigned]"), "{text}");
     assert!(text.contains("commitlint: rejected"), "{text}");
+    assert!(
+        text.contains("commit      signature  files  result"),
+        "{text}"
+    );
+    assert!(
+        text.contains("none       1      2 problem(s)  Added the entry point."),
+        "{text}"
+    );
     let all = lint(&s.0, &["commits", "HEAD~1"], "", None);
     assert!(stderr(&all).contains("1 commit(s)"), "{}", stderr(&all));
     let refs = format!("refs/heads/main {head} refs/heads/main {base}\n");
@@ -169,6 +180,14 @@ fn outdated_reads_every_tool() {
     let out = lint(&s.0, &["outdated", "."], "", Some(&tools));
     let text = stderr(&out);
     assert_eq!(out.status.code(), Some(1), "{text}");
+    for section in [
+        "outdated: Cargo.lock\n  0 locked packages, 1 with a newer compatible release",
+        "outdated: flake.lock inputs\n",
+        "nixpkgs  - 1970-01-01  - 1970-01-24  23 day(s)  outdated",
+        "actions/checkout  oldsha  newsha v9       deprecated, outdated  .github/workflows/ci.yml",
+    ] {
+        assert!(text.contains(section), "{section} missing in {text}");
+    }
     for rule in [
         "error[outdated-lockfile] Cargo.lock zip",
         "error[outdated-dependency] Cargo.toml stella -> clap",
@@ -187,4 +206,5 @@ fn outdated_reads_every_tool() {
     let text = stderr(&quick);
     assert!(!text.contains("outdated-action"), "{text}");
     assert!(!text.contains("outdated-flake-input"), "{text}");
+    assert!(text.contains("skipped, --no-actions"), "{text}");
 }

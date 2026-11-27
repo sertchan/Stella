@@ -5,6 +5,53 @@ use std::process::Command;
 
 pub const MAX_SUBJECT: usize = 72;
 
+pub const RULES: [&str; 15] = [
+    "subject-format",
+    "scope-syntax",
+    "scope-unknown",
+    "scope-files",
+    "summary-case",
+    "summary-punctuation",
+    "subject-length",
+    "subject-spacing",
+    "body-separator",
+    "attribution",
+    "work-in-progress",
+    "merge-commit",
+    "unsigned",
+    "bad-signature",
+    "empty-commit",
+];
+
+pub const COLUMNS: [&str; 5] = ["commit", "signature", "files", "result", "subject"];
+
+pub fn signature(code: char) -> &'static str {
+    match code {
+        'G' => "good",
+        'U' => "good, untrusted key",
+        'X' => "good, expired",
+        'Y' => "good, expired key",
+        'R' => "good, revoked key",
+        'E' => "present, key not here",
+        'B' => "bad",
+        _ => "none",
+    }
+}
+
+pub fn row(c: &Commit, problems: usize) -> [String; 5] {
+    [
+        short(&c.sha).to_string(),
+        signature(c.signature).to_string(),
+        c.files.len().to_string(),
+        if problems == 0 {
+            "ok".to_string()
+        } else {
+            format!("{problems} problem(s)")
+        },
+        clean(&c.message).lines().next().unwrap_or("").to_string(),
+    ]
+}
+
 const FIXED: &[&str] = &[
     "flake",
     "cargo",
@@ -639,6 +686,7 @@ mod tests {
             ..c
         };
         assert!(check_commit(&lock, &crates()).is_empty());
+        assert_eq!(row(&lock, 0)[3], "ok");
         let empty = Commit {
             files: Vec::new(),
             signature: 'B',
@@ -649,6 +697,28 @@ mod tests {
             .map(|f| f.rule)
             .collect();
         assert_eq!(found, ["bad-signature", "empty-commit"]);
+        assert_eq!(
+            row(&empty, 2),
+            [
+                "0123456789",
+                "bad",
+                "0",
+                "2 problem(s)",
+                "dns: add resolver"
+            ]
+            .map(String::from)
+        );
+        for (code, text) in [
+            ('G', "good"),
+            ('U', "good, untrusted key"),
+            ('X', "good, expired"),
+            ('Y', "good, expired key"),
+            ('R', "good, revoked key"),
+            ('E', "present, key not here"),
+            ('N', "none"),
+        ] {
+            assert_eq!(signature(code), text);
+        }
     }
 
     #[test]
