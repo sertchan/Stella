@@ -10,6 +10,7 @@ in {
   packages.${system} = {
     inherit stella;
     default = stella;
+    coverage = import ./coverage.nix {inherit pkgs rust;};
   };
   devShells.${system} = {
     default = import ./shell.nix {inherit pkgs;};
