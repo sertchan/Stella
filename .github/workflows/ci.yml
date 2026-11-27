@@ -1,0 +1,455 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      checks: ${{ steps.list.outputs.checks }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/nix
+      - id: list
+        name: list flake checks
+        run: echo "checks=$(nix eval --json .#checks.x86_64-linux --apply builtins.attrNames)" >> "$GITHUB_OUTPUT"
+
+  check:
+    name: ${{ matrix.check }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        check: ${{ fromJSON(needs.plan.outputs.checks) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - id: deps
+        name: pick the cached dependency derivation
+        env:
+          CHECK: ${{ matrix.check }}
+        run: |
+          case "$CHECK" in
+            clippy) deps=debugDeps ;;
+            test) deps=measuredDeps ;;
+            source-lint) deps=lintDeps ;;
+            *) deps="" ;;
+          esac
+          echo "name=$deps" >> "$GITHUB_OUTPUT"
+      - id: nix
+        uses: ./.github/actions/nix
+        with:
+          deps: ${{ steps.deps.outputs.name }}
+      - name: nix build .#checks.x86_64-linux.${{ matrix.check }}
+        env:
+          CHECK: ${{ matrix.check }}
+        run: |
+          set -o pipefail
+          nix build --print-build-logs --no-link ".#checks.x86_64-linux.$CHECK" 2>&1 | tee "$RUNNER_TEMP/build.log"
+      - name: explain the failure
+        if: failure()
+        env:
+          CHECK: ${{ matrix.check }}
+        run: |
+          log="$RUNNER_TEMP/build.log"
+          why="$RUNNER_TEMP/why.txt"
+          sed -E 's/^[A-Za-z0-9.+_-]+> //' "$log" | awk '/^error\[/ { on = 1 } on { print } on && /^$/ { on = 0 }' > "$why" || true
+          [ -s "$why" ] || tail -n 80 "$log" > "$why"
+          {
+            echo "### $CHECK rejected this change"
+            echo '```text'
+            cat "$why"
+            echo '```'
+            echo "Run nix build .#checks.x86_64-linux.$CHECK or nix flake check to see the same report locally."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=$CHECK rejected this change::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' "$why")"
+      - name: save the dependency derivation
+        if: success() && steps.nix.outputs.key != '' && steps.nix.outputs.hit != 'true'
+        env:
+          DIR: ${{ steps.nix.outputs.dir }}
+          STORE_PATH: ${{ steps.nix.outputs.path }}
+        run: nix copy --to "file://$DIR?compression=zstd" "$STORE_PATH"
+      - if: success() && steps.nix.outputs.key != '' && steps.nix.outputs.hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ steps.nix.outputs.dir }}
+          key: ${{ steps.nix.outputs.key }}
+      - name: test and coverage summary
+        if: always() && matrix.check == 'test'
+        run: |
+          nix build .#coverage -o coverage || exit 0
+          row() { printf '%-12s %s\n' "$1" "$2"; }
+          junit=coverage/junit.xml
+          head=$(grep -o '<testsuites [^>]*>' "$junit")
+          attr() { echo "$head" | grep -o " $1=\"[^\"]*\"" | cut -d'"' -f2; }
+          {
+            echo '```text'
+            row tests "$(attr tests) run, $(attr failures) failed, $(attr skipped) skipped, $(attr time) s, nextest, dev profile with overflow checks"
+            echo "  slowest"
+            grep -o '<testcase [^>]*>' "$junit" |
+              sed -E 's/.* name="([^"]*)" classname="([^"]*)".* time="([^"]*)".*/\3 \2 \1/' |
+              sort -rn | head -5 |
+              while read -r t c n; do printf '    %8s s  %-24s %s\n' "$t" "$c" "$n"; done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          totals=coverage/summary.json
+          cell() { awk -v a="$1" -v b="$2" 'BEGIN { if (b == 0) printf "%13s %6s", "-", "-"; else printf "%13s %5.1f%%", a "/" b, a * 100 / b }'; }
+          line() { printf '%-10s %s  %s  %s\n' "$1" "$(cell "$2" "$3")" "$(cell "$4" "$5")" "$(cell "$6" "$7")"; }
+          {
+            echo '```text'
+            printf '%-10s %20s  %20s  %20s\n' crate lines functions regions
+            jq -r '.data[0].files
+              | group_by(.filename | capture("crates/(?<c>[^/]+)/").c)
+              | map({
+                  c: (.[0].filename | capture("crates/(?<c>[^/]+)/").c),
+                  t: (map(.summary) | {
+                    lc: (map(.lines.covered) | add), ln: (map(.lines.count) | add),
+                    fc: (map(.functions.covered) | add), fn: (map(.functions.count) | add),
+                    rc: (map(.regions.covered) | add), rn: (map(.regions.count) | add)
+                  })
+                })
+              | sort_by(-(.t.lc / .t.ln))
+              | .[]
+              | [.c, .t.lc, .t.ln, .t.fc, .t.fn, .t.rc, .t.rn]
+              | @tsv' "$totals" |
+            while IFS=$'\t' read -r c a b d e f g; do line "$c" "$a" "$b" "$d" "$e" "$f" "$g"; done
+            jq -r '.data[0].totals | ["total", .lines.covered, .lines.count, .functions.covered, .functions.count, .regions.covered, .regions.count] | @tsv' "$totals" |
+            while IFS=$'\t' read -r c a b d e f g; do line "$c" "$a" "$b" "$d" "$e" "$f" "$g"; done
+            echo
+            echo "files with the most uncovered lines"
+            jq -r '.data[0].files
+              | map(select(.summary.lines.count > .summary.lines.covered))
+              | sort_by(.summary.lines.covered - .summary.lines.count)
+              | .[:12][]
+              | [(.filename | sub(".*/crates/"; "")), .summary.lines.covered, .summary.lines.count, .summary.lines.percent]
+              | @tsv' "$totals" |
+            while IFS=$'\t' read -r f a b p; do printf '  %-36s %13s %5.1f%%\n' "$f" "$a/$b" "$p"; done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - if: always() && matrix.check == 'test' && hashFiles('coverage/summary.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: coverage
+          path: |
+            coverage/lcov.info
+            coverage/report.txt
+
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - id: nix
+        uses: ./.github/actions/nix
+        with:
+          deps: releaseDeps
+      - name: build
+        run: nix build --print-build-logs
+      - name: save the dependency derivation
+        if: success() && steps.nix.outputs.hit != 'true'
+        env:
+          DIR: ${{ steps.nix.outputs.dir }}
+          STORE_PATH: ${{ steps.nix.outputs.path }}
+        run: nix copy --to "file://$DIR?compression=zstd" "$STORE_PATH"
+      - if: success() && steps.nix.outputs.hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ steps.nix.outputs.dir }}
+          key: ${{ steps.nix.outputs.key }}
+      - name: smoke test
+        run: ./result/bin/stella --help > /dev/null
+      - name: rebuild bit for bit
+        id: repro
+        run: nix build --rebuild --print-build-logs
+      - name: sbom
+        if: github.event_name == 'push'
+        run: |
+          mkdir dist
+          cp -L result/bin/.stella-wrapped dist/stella
+          nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-cyclonedx -c cargo cyclonedx -f json --target x86_64-unknown-linux-gnu
+          mv crates/cli/stella.cdx.json dist/stella.cdx.json
+          nix run --inputs-from . nixpkgs#sbomnix -- ./result --cdx dist/closure.cdx.json
+      - name: attest provenance
+        if: github.event_name == 'push'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: dist/stella
+      - name: attest sbom
+        if: github.event_name == 'push'
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e
+        with:
+          subject-path: dist/stella
+          sbom-path: dist/stella.cdx.json
+      - name: upload signed build
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: stella-${{ github.sha }}
+          path: dist
+      - name: summary
+        if: always()
+        env:
+          REPRO: ${{ steps.repro.outcome }}
+          REPO: ${{ github.repository }}
+        run: |
+          row() { printf '%-12s %s\n' "$1" "$2"; }
+          lock() { jq -r --arg n "$1" '.nodes[$n].locked | "\(.rev)  \(.lastModified | todate)"' flake.lock; }
+          {
+            echo '```text'
+            row commit "$GITHUB_SHA"
+            row event "$GITHUB_EVENT_NAME  $GITHUB_REF"
+            row nix "$(nix --version | awk '{print $NF}')"
+            row rustc "$(nix eval --raw --inputs-from . nixpkgs#rustc.version)"
+            row nixpkgs "$(lock nixpkgs)"
+            row crane "$(lock crane)"
+            if [ -e result ]; then
+              bin=result/bin/.stella-wrapped
+              row binary "$(readlink -f "$bin")"
+              row size "$(stat -c %s "$bin") bytes"
+              row sha256 "$(sha256sum "$bin" | cut -d' ' -f1)"
+              row closure "$(nix path-info --closure-size ./result | awk '{printf "%d MiB", $2 / 1048576}') in $(nix path-info --recursive ./result | wc -l) store paths"
+            fi
+            case "$REPRO" in
+              success) row rebuild "identical, nix build --rebuild gave the same bytes" ;;
+              failure) row rebuild "FAIL, nix build --rebuild failed or gave different bytes" ;;
+              *) row rebuild "not run" ;;
+            esac
+            if [ -f dist/stella.cdx.json ]; then
+              echo
+              echo "signed build"
+              printf '  %-18s sha256 %s\n' stella "$(sha256sum dist/stella | cut -d' ' -f1)"
+              printf '  %-18s %s Rust crates\n' stella.cdx.json "$(jq '.components | length' dist/stella.cdx.json)"
+              printf '  %-18s %s Nix store paths\n' closure.cdx.json "$(jq '.components | length' dist/closure.cdx.json)"
+              printf '  %-18s gh attestation verify stella -R %s\n' verify "$REPO"
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  commitlint:
+    name: commitlint
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: nix
+        uses: ./.github/actions/nix
+        with:
+          deps: lintDeps
+      - name: check every new commit
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            range="$BASE..$HEAD"
+          elif [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
+            range="origin/main..$AFTER"
+          else
+            range="$BEFORE..$AFTER"
+          fi
+          nix run .#lint -- commits "$range"
+      - name: check pull request title, which becomes the squash commit subject
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$TITLE" > "$RUNNER_TEMP/title"
+          nix run .#lint -- commit-msg "$RUNNER_TEMP/title"
+
+  outdated:
+    name: outdated
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - id: nix
+        uses: ./.github/actions/nix
+        with:
+          deps: lintDeps
+      - name: newest stable releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: nix run .#lint -- outdated
+
+  cargo-audit:
+    name: cargo-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/nix
+      - name: cargo audit
+        run: |
+          status=0
+          rows=""
+          found=""
+          for lock in Cargo.lock fuzz/Cargo.lock; do
+            nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit --deny warnings --file "$lock" || status=1
+            nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit --json --file "$lock" > audit.json || true
+            db=$(jq -r '.database | "\(.["advisory-count"]) advisories, commit \(.["last-commit"]), updated \(.["last-updated"])"' audit.json)
+            rows+=$(jq -r --arg lock "$lock" '[$lock, .lockfile["dependency-count"], .vulnerabilities.count, ([.warnings[]? | length] | add // 0)] | @tsv' audit.json)$'\n'
+            found+=$(jq -r --arg lock "$lock" '
+              ((.vulnerabilities.list // [])[] | [$lock, "vulnerability", .advisory.id, "\(.package.name) \(.package.version)", .advisory.title]),
+              ((.warnings // {}) | to_entries[] | .key as $k | .value[] | [$lock, $k, (.advisory.id // "-"), "\(.package.name) \(.package.version)", (.advisory.title // "")])
+              | @tsv' audit.json)
+            [ -n "$found" ] && found+=$'\n'
+          done
+          {
+            echo '```text'
+            printf '%-12s %s\n' database "$db"
+            echo
+            printf '%-16s %7s %16s %9s\n' lockfile crates vulnerabilities warnings
+            printf '%s' "$rows" | while IFS=$'\t' read -r l c v w; do printf '%-16s %7s %16s %9s\n' "$l" "$c" "$v" "$w"; done
+            if [ -n "$found" ]; then
+              echo
+              printf '%s' "$found" | while IFS=$'\t' read -r l k id p t; do printf '%-16s %-13s %-18s %-24s %s\n' "$l" "$k" "$id" "$p" "$t"; done
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+  fuzz:
+    name: fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [dns_parse, http_reply]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/nix
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry
+            fuzz/target
+          key: fuzz-build-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'fuzz/Cargo.lock') }}
+          restore-keys: fuzz-build-${{ matrix.target }}-
+      - name: fuzz for three minutes
+        working-directory: fuzz
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p "corpus/$TARGET"
+          before=$(find "corpus/$TARGET" -type f | wc -l)
+          set -o pipefail
+          status=0
+          nix develop ..#fuzz -c cargo fuzz run -s none "$TARGET" -- -max_total_time=180 -print_final_stats=1 2>&1 | tee fuzz.log || status=$?
+          after=$(find "corpus/$TARGET" -type f | wc -l)
+          final() { grep -o "stat::$1: *[0-9.]*" fuzz.log | grep -o '[0-9.]*$' | tail -1; }
+          last=$(grep -E '^#[0-9]+' fuzz.log | tail -1)
+          field() { echo "$last" | grep -o "$1: [0-9]*" | cut -d' ' -f2; }
+          row() { printf '%-16s %s\n' "$1" "$2"; }
+          {
+            echo '```text'
+            row target "$TARGET"
+            row result "$(if [ "$status" -eq 0 ]; then echo "no crash"; else echo "FAIL, exit $status"; fi)"
+            row sanitizer "none, nixpkgs rustc has no address sanitizer runtime"
+            row time "$(grep -o 'Done [0-9]* runs in [0-9]* second' fuzz.log | awk '{print $5}') s"
+            row runs "$(final number_of_executed_units)"
+            row "runs per sec" "$(final average_exec_per_sec)"
+            row edges "$(field cov)"
+            row features "$(field ft)"
+            row corpus "$before -> $after inputs, $(du -sb "corpus/$TARGET" | cut -f1) bytes"
+            row "new inputs" "$(final new_units_added)"
+            row "peak memory" "$(final peak_rss_mb) MiB"
+            if [ "$status" -ne 0 ]; then
+              echo
+              echo "crash"
+              grep -m1 -E "panicked at|ERROR: libFuzzer" fuzz.log | sed 's/^/  /'
+              find "artifacts/$TARGET" -type f 2> /dev/null | sed 's/^/  /'
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}
+          if-no-files-found: ignore
+
+
+  ci-success:
+    name: ci-success
+    if: always()
+    needs: [plan, check, release, commitlint, outdated, cargo-audit, fuzz]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: every required job passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          failed=0
+          {
+            echo '```text'
+            printf '%-14s %s\n' job result
+            while read -r job result; do
+              ok=no
+              if [ "$result" = success ]; then
+                ok=yes
+              elif [ "$result" = skipped ] && [ "$job" = commitlint ] && [ "$EVENT" != push ] && [ "$EVENT" != pull_request ]; then
+                ok=yes
+              fi
+              printf '%-14s %s\n' "$job" "$result"
+              if [ "$ok" = no ]; then
+                failed=1
+                echo "::error title=$job did not pass::The $job job ended with $result. Open $RUN, select $job and read its summary: every rejection names the rule, what was found, what is expected, why the rule exists and how to fix it."
+              fi
+            done < <(jq -r 'to_entries[] | "\(.key) \(.value.result)"' <<< "$NEEDS")
+            echo '```'
+            if [ "$failed" -ne 0 ]; then
+              echo "This change is rejected. Every job above must pass before it can land on main."
+              echo "Each failed job explains why in its own summary and in the annotations on the pull request."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$failed"

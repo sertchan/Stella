@@ -1,8 +1,51 @@
 name: nix
-description: Install Nix with a GitHub token for flake inputs
+description: Install Nix and restore one cached dependency derivation
+inputs:
+  deps:
+    description: Attribute under legacyPackages.x86_64-linux.deps to restore, empty for none
+    default: ""
+outputs:
+  hit:
+    description: Whether the dependency derivation came from the cache
+    value: ${{ steps.restore.outputs.cache-hit }}
+  key:
+    description: Cache key of the dependency derivation
+    value: ${{ steps.plan.outputs.key }}
+  dir:
+    description: Directory of the file binary cache
+    value: ${{ steps.plan.outputs.dir }}
+  path:
+    description: Store path of the dependency derivation
+    value: ${{ steps.plan.outputs.path }}
 runs:
   using: composite
   steps:
     - uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877
       with:
         github_access_token: ${{ github.token }}
+        set_as_trusted_user: true
+    - id: plan
+      if: inputs.deps != ''
+      shell: bash
+      env:
+        DEPS: ${{ inputs.deps }}
+      run: |
+        attr=".#legacyPackages.x86_64-linux.deps.$DEPS"
+        drv=$(nix eval --raw "$attr.drvPath")
+        {
+          echo "key=nix-deps-$DEPS-$(basename "$drv" .drv)"
+          echo "dir=$RUNNER_TEMP/nix-deps"
+          echo "path=$(nix eval --raw "$attr.outPath")"
+        } >> "$GITHUB_OUTPUT"
+    - id: restore
+      if: inputs.deps != ''
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.plan.outputs.dir }}
+        key: ${{ steps.plan.outputs.key }}
+    - if: inputs.deps != '' && steps.restore.outputs.cache-hit == 'true'
+      shell: bash
+      env:
+        DIR: ${{ steps.plan.outputs.dir }}
+        STORE_PATH: ${{ steps.plan.outputs.path }}
+      run: nix copy --no-check-sigs --from "file://$DIR" "$STORE_PATH"
