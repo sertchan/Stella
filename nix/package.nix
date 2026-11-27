@@ -13,6 +13,7 @@ in
   rust.craneLib.buildPackage (rust.common
     // {
       cargoArtifacts = rust.releaseDeps;
+      cargoExtraArgs = "--locked --package stella";
       doCheck = false;
       nativeBuildInputs = rust.common.nativeBuildInputs ++ [pkgs.makeWrapper];
       postInstall = ''

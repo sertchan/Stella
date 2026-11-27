@@ -1,7 +1,10 @@
-{pkgs}: let
-  preCommit = import ./pre-commit.nix {inherit pkgs;};
-  prePush = import ./pre-push.nix {inherit pkgs;};
-  comments = import ./comments.nix {inherit pkgs;};
+{
+  pkgs,
+  lint,
+}: let
+  preCommit = import ./pre-commit.nix {inherit pkgs lint;};
+  prePush = import ./pre-push.nix {inherit pkgs lint;};
+  commitMsg = import ./commit-msg.nix {inherit pkgs lint;};
 in
   pkgs.mkShell {
     name = "stella";
@@ -23,7 +26,11 @@ in
       pkgs.xvfb
       preCommit
       prePush
-      comments
+      commitMsg
+      lint
+      pkgs.cargo-outdated
+      pkgs.cargo-machete
+      pkgs.cargo-nextest
     ];
     env.RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
     shellHook = ''
@@ -41,6 +48,13 @@ in
         mkdir -p "$gitDir/hooks"
         ln -sf "$pushTarget" "$gitDir/hooks/pre-push"
         echo "installed pre-push hook -> $pushTarget"
+      fi
+
+      msgTarget="${commitMsg}/bin/stella-commit-msg"
+      if [ -n "$gitDir" ] && [ "$(readlink "$gitDir/hooks/commit-msg" 2>/dev/null)" != "$msgTarget" ]; then
+        mkdir -p "$gitDir/hooks"
+        ln -sf "$msgTarget" "$gitDir/hooks/commit-msg"
+        echo "installed commit-msg hook -> $msgTarget"
       fi
     '';
   }
