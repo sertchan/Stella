@@ -51,7 +51,7 @@ in {
     inputs = [pkgs.rustfmt pkgs.findutils];
     why = "Rust files follow rustfmt with edition 2024. Hand formatting against the formatter is not accepted.";
     fix = formatted;
-    script = "find ${self}/crates ${self}/fuzz -name '*.rs' -exec rustfmt --edition 2024 --check {} +";
+    script = "find ${self}/crates -name '*.rs' -exec rustfmt --edition 2024 --check {} +";
   };
   taplo = mkCheck {
     name = "taplo";

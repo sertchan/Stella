@@ -13,7 +13,6 @@ const FIXED: &[&str] = &[
     "gitignore",
     "readme",
     "license",
-    "fuzz",
     "nix",
 ];
 
@@ -134,7 +133,6 @@ pub fn covers(atom: &str, path: &str) -> bool {
         "license" => {
             !path.contains('/') && (path.starts_with("LICENSE") || path.starts_with("COPYING"))
         }
-        "fuzz" => path.starts_with("fuzz/"),
         "nix" => path.starts_with("nix/"),
         _ => match atom.split_once('/') {
             Some(("nix", name)) => path == format!("nix/{name}.nix"),
@@ -151,15 +149,7 @@ pub fn covers(atom: &str, path: &str) -> bool {
 }
 
 fn narrowest(path: &str) -> String {
-    let fixed = [
-        "flake",
-        "cargo",
-        "meta",
-        "gitignore",
-        "readme",
-        "license",
-        "fuzz",
-    ];
+    let fixed = ["flake", "cargo", "meta", "gitignore", "readme", "license"];
     if let Some(a) = fixed.iter().find(|a| covers(a, path)) {
         return (*a).to_string();
     }
@@ -593,12 +583,11 @@ mod tests {
         assert!(covers("nix/checks", "nix/checks.nix"));
         assert!(covers("meta", ".github/workflows/check.yml"));
         assert!(covers("meta", "treefmt.toml"));
-        assert!(covers("gitignore", "fuzz/.gitignore"));
+        assert!(covers("gitignore", "crates/x/.gitignore"));
         assert!(covers("cargo", "deny.toml"));
         assert!(!covers("readme", "docs/README.md"));
         assert!(covers("license", "LICENSE"));
         assert!(covers("flake", "flake.lock"));
-        assert!(covers("fuzz", "fuzz/Cargo.toml"));
         assert!(covers("treewide", "anything"));
         assert!(valid_atom("nix/checks", &crates()));
         assert!(!valid_atom("nix/Checks", &crates()));

@@ -21,7 +21,6 @@ in {
   };
   devShells.${system} = {
     default = import ./shell.nix {inherit pkgs lint;};
-    fuzz = import ./fuzz.nix {inherit pkgs;};
   };
   formatter.${system} = import ./fmt.nix {inherit pkgs;};
   checks.${system} = checks;
