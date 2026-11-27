@@ -1848,6 +1848,7 @@ dependencies = [
  "rustc-hash",
  "serde_json",
  "stella-core",
+ "stella-testkit",
  "tokio",
  "tokio-tungstenite",
 ]
