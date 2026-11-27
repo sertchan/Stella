@@ -1,0 +1,66 @@
+name: Cache
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deps:
+    name: ${{ matrix.deps }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        deps: [releaseDeps, debugDeps, measuredDeps, lintDeps]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - id: nix
+        uses: ./.github/actions/nix
+        with:
+          deps: ${{ matrix.deps }}
+      - name: build the dependency derivation
+        if: steps.nix.outputs.hit != 'true'
+        env:
+          DEPS: ${{ matrix.deps }}
+          DIR: ${{ steps.nix.outputs.dir }}
+          STORE_PATH: ${{ steps.nix.outputs.path }}
+        run: |
+          begin=$(date +%s%N)
+          echo "::group::nix build log of $DEPS"
+          nix build --print-build-logs --no-link ".#legacyPackages.x86_64-linux.deps.$DEPS"
+          echo "::endgroup::"
+          nix copy --to "file://$DIR?compression=zstd" "$STORE_PATH"
+          awk -v s="$begin" -v e="$(date +%s%N)" 'BEGIN { printf "built    in %.2f s\n", (e - s) / 1e9 }'
+      - if: steps.nix.outputs.hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ steps.nix.outputs.dir }}
+          key: ${{ steps.nix.outputs.key }}
+      - name: cache report
+        env:
+          DEPS: ${{ matrix.deps }}
+          HIT: ${{ steps.nix.outputs.hit }}
+          KEY: ${{ steps.nix.outputs.key }}
+          DIR: ${{ steps.nix.outputs.dir }}
+        run: |
+          report="$RUNNER_TEMP/report.txt"
+          {
+            printf '%-9s%s\n' deps "$DEPS"
+            printf '%-9s%s\n' key "$KEY"
+            printf '%-9s%s\n' scope "main, so every ci branch and pull request can restore it"
+            printf '%-9s%s\n' size "$(du -sb "$DIR" | cut -f1 | numfmt --to=iec-i --suffix=B)"
+            if [ "$HIT" = true ]; then
+              printf '%-9s%s\n' result "already in the cache, nothing to save"
+            else
+              printf '%-9s%s\n' result "built and saved"
+            fi
+          } > "$report"
+          cat "$report"
+          { echo '```text'; cat "$report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

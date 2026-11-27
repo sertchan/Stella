@@ -121,17 +121,6 @@ jobs:
             echo "Run nix build $attr or nix flake check to see the same report locally."
           fi
           exit "$st"
-      - name: save the dependency derivation
-        if: success() && steps.nix.outputs.key != '' && steps.nix.outputs.hit != 'true'
-        env:
-          DIR: ${{ steps.nix.outputs.dir }}
-          STORE_PATH: ${{ steps.nix.outputs.path }}
-        run: nix copy --to "file://$DIR?compression=zstd" "$STORE_PATH"
-      - if: success() && steps.nix.outputs.key != '' && steps.nix.outputs.hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ${{ steps.nix.outputs.dir }}
-          key: ${{ steps.nix.outputs.key }}
       - name: test and coverage report
         if: always() && matrix.check == 'test'
         run: |

@@ -72,5 +72,5 @@ runs:
         elif [ "$HIT" = true ]; then
           row deps "$DEPS restored from the cache as $KEY"
         else
-          row deps "$DEPS not in the cache, built in this job and saved as $KEY"
+          row deps "$DEPS not in the cache yet, built in this job, the Cache workflow saves it from main as $KEY"
         fi
