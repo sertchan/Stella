@@ -9,13 +9,13 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/sertchan/stella"
 
 [workspace.dependencies]
-stella-core = { path = "crates/core" }
-stella-dns = { path = "crates/dns" }
-stella-net = { path = "crates/net" }
-stella-probe = { path = "crates/probe" }
-stella-sources = { path = "crates/sources" }
-stella-apk = { path = "crates/apk" }
-stella-crawl = { path = "crates/crawl" }
+stella-core = { path = "crates/core", version = "0.1.0" }
+stella-dns = { path = "crates/dns", version = "0.1.0" }
+stella-net = { path = "crates/net", version = "0.1.0" }
+stella-probe = { path = "crates/probe", version = "0.1.0" }
+stella-sources = { path = "crates/sources", version = "0.1.0" }
+stella-apk = { path = "crates/apk", version = "0.1.0" }
+stella-crawl = { path = "crates/crawl", version = "0.1.0" }
 aho-corasick = "1"
 anyhow = "1"
 base64 = "0.23"
