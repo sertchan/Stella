@@ -17,33 +17,128 @@ concurrency:
 
 jobs:
   check:
+    name: flake check
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877
+      - uses: ./.github/actions/nix
+      - name: flake check
+        run: nix flake check --print-build-logs --keep-going
+      - name: build
+        run: nix build --print-build-logs
+      - name: smoke test
+        run: ./result/bin/stella --help > /dev/null
+      - name: rebuild bit for bit
+        id: repro
+        run: nix build --rebuild --print-build-logs
+      - name: summary
+        if: always()
+        env:
+          REPRO: ${{ steps.repro.outcome }}
+        run: |
+          checks=.#checks.x86_64-linux
+          {
+            echo "## Flake checks"
+            echo
+            echo "| check | result |"
+            echo "| --- | --- |"
+            for c in $(nix eval --json "$checks" --apply builtins.attrNames | jq -r '.[]'); do
+              out=$(nix eval --raw "$checks.$c.outPath")
+              if nix path-info "$out" > /dev/null 2>&1; then r="✅ pass"; else r="❌ fail"; fi
+              echo "| \`$c\` | $r |"
+            done
+            tests=$(nix eval --raw "$checks.tests.outPath")
+            if [ -f "$tests/junit.xml" ]; then
+              head=$(grep -o '<testsuites [^>]*>' "$tests/junit.xml")
+              attr() { echo "$head" | grep -o " $1=\"[^\"]*\"" | cut -d'"' -f2; }
+              echo
+              echo "**Tests:** $(attr tests) run, $(attr failures) failed, $(attr skipped) skipped in $(attr time) s under nextest with overflow checks."
+            fi
+            if [ -e result ]; then
+              bin=$(stat -c %s result/bin/.stella-wrapped)
+              closure=$(nix path-info --closure-size ./result | awk '{print $2}')
+              echo
+              echo "**Binary:** $((bin / 1024 / 1024)) MiB, runtime closure $((closure / 1024 / 1024)) MiB, sha256 \`$(sha256sum result/bin/.stella-wrapped | cut -c1-16)…\`"
+            fi
+            echo
+            case "$REPRO" in
+              success) echo "**Reproducible:** ✅ a second build gave the same bytes." ;;
+              failure) echo "**Reproducible:** ❌ a second build failed or gave different bytes." ;;
+              *) echo "**Reproducible:** not checked." ;;
+            esac
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          github_access_token: ${{ secrets.GITHUB_TOKEN }}
-      - run: nix flake check --print-build-logs --keep-going
-      - run: nix build --print-build-logs
-      - run: ./result/bin/stella --help
+          persist-credentials: false
+      - uses: ./.github/actions/nix
+      - name: measure
+        run: nix build --print-build-logs .#coverage -o coverage
+      - name: summary
+        run: |
+          bar() { s=""; for ((i = 0; i < 20; i++)); do if ((i < $1 / 5)); then s+="█"; else s+="░"; fi; done; printf '%s' "$s"; }
+          totals=coverage/summary.json
+          lines=$(jq '.data[0].totals.lines.percent | floor' "$totals")
+          {
+            echo "## Line coverage"
+            echo
+            echo "**Total:** $(bar "$lines") $(jq -r '.data[0].totals | "\(.lines.percent * 10 | floor / 10)% of lines, \(.functions.percent * 10 | floor / 10)% of functions"' "$totals")"
+            echo
+            echo "| crate | | lines covered | share |"
+            echo "| --- | --- | --- | --- |"
+            jq -r '.data[0].files
+              | map({c: (.filename | capture("crates/(?<c>[^/]+)/").c), n: .summary.lines.count, k: .summary.lines.covered})
+              | group_by(.c)
+              | map({c: .[0].c, n: (map(.n) | add), k: (map(.k) | add)})
+              | sort_by(-(.k / .n))
+              | .[]
+              | "\(.c) \(.k) \(.n) \(.k * 100 / .n | floor)"' "$totals" |
+            while read -r c k n p; do
+              echo "| \`$c\` | $(bar "$p") | $k / $n | $p% |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: coverage
+          path: |
+            coverage/lcov.info
+            coverage/report.txt
 
   audit:
+    name: advisories
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877
-        with:
-          github_access_token: ${{ secrets.GITHUB_TOKEN }}
-      - run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit --deny warnings
-      - run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit --deny warnings --file fuzz/Cargo.lock
+      - uses: ./.github/actions/nix
+      - name: cargo audit
+        run: |
+          status=0
+          {
+            echo "## RustSec advisories"
+            echo
+            echo "| lockfile | crates | vulnerabilities | warnings |"
+            echo "| --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for lock in Cargo.lock fuzz/Cargo.lock; do
+            nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit --deny warnings --file "$lock" || status=1
+            nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit --json --file "$lock" > audit.json || true
+            jq -r --arg lock "$lock" '"| `\($lock)` | \(.lockfile["dependency-count"]) | \(.vulnerabilities.count) | \([.warnings[]? | length] | add // 0) |"' audit.json >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit "$status"
 
   fuzz:
+    name: fuzz ${{ matrix.target }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -54,21 +149,92 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877
-        with:
-          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/nix
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: fuzz/corpus/${{ matrix.target }}
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
           restore-keys: fuzz-corpus-${{ matrix.target }}-
-      - working-directory: fuzz
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry
+            fuzz/target
+          key: fuzz-build-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'fuzz/Cargo.lock') }}
+          restore-keys: fuzz-build-${{ matrix.target }}-
+      - name: fuzz for three minutes
+        working-directory: fuzz
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
-          mkdir -p corpus/${{ matrix.target }}
-          nix develop ..#fuzz -c cargo fuzz run -s none ${{ matrix.target }} -- -max_total_time=180
+          mkdir -p "corpus/$TARGET"
+          before=$(find "corpus/$TARGET" -type f | wc -l)
+          set -o pipefail
+          nix develop ..#fuzz -c cargo fuzz run -s none "$TARGET" -- -max_total_time=180 -print_final_stats=1 2>&1 | tee fuzz.log
+          after=$(find "corpus/$TARGET" -type f | wc -l)
+          final() { grep -o "stat::$1: *[0-9]*" fuzz.log | grep -o '[0-9]*$'; }
+          last=$(grep -E '^#[0-9]+' fuzz.log | tail -1)
+          {
+            echo "## Fuzz \`$TARGET\`"
+            echo
+            echo "| runs | runs per second | coverage | features | corpus | peak memory |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+            echo "| $(final number_of_executed_units) | $(final average_exec_per_sec) | $(echo "$last" | grep -o 'cov: [0-9]*' | cut -d' ' -f2) edges | $(echo "$last" | grep -o 'ft: [0-9]*' | cut -d' ' -f2) | $before → $after inputs | $(final peak_rss_mb) MiB |"
+          } >> "$GITHUB_STEP_SUMMARY"
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: fuzz-crash-${{ matrix.target }}
           path: fuzz/artifacts/${{ matrix.target }}
           if-no-files-found: ignore
+
+  provenance:
+    name: sbom and provenance
+    if: github.event_name == 'push'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/nix
+      - name: build
+        run: nix build --print-build-logs
+      - name: sbom
+        run: |
+          mkdir dist
+          cp -L result/bin/.stella-wrapped dist/stella
+          nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-cyclonedx -c cargo cyclonedx -f json --target x86_64-unknown-linux-gnu
+          mv crates/cli/stella.cdx.json dist/stella.cdx.json
+          nix run --inputs-from . nixpkgs#sbomnix -- ./result --cdx dist/closure.cdx.json
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: dist/stella
+      - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e
+        with:
+          subject-path: dist/stella
+          sbom-path: dist/stella.cdx.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: stella-${{ github.sha }}
+          path: dist
+      - name: summary
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "## Signed build"
+            echo
+            echo "| file | content |"
+            echo "| --- | --- |"
+            echo "| \`stella\` | sha256 \`$(sha256sum dist/stella | cut -d' ' -f1)\` |"
+            echo "| \`stella.cdx.json\` | $(jq '.components | length' dist/stella.cdx.json) Rust crates |"
+            echo "| \`closure.cdx.json\` | $(jq '.components | length' dist/closure.cdx.json) Nix store paths |"
+            echo
+            echo "Verify a downloaded binary with \`gh attestation verify stella -R $REPO\`."
+          } >> "$GITHUB_STEP_SUMMARY"
