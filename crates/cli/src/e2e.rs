@@ -457,3 +457,52 @@ async fn pipeline_probes_writes_rows_and_drops_covered_hosts() {
         "DROP"
     );
 }
+
+#[test]
+fn offline_sources_read_files_lists_and_local_scripts() {
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    let site = Site::new()
+        .route(
+            "/app.js",
+            Reply::ok(
+                "fetch(\"https://collect.vendor.test/v1\");\n//# sourceMappingURL=app.js.map\n",
+            )
+            .header("Content-Type", "application/javascript"),
+        )
+        .route(
+            "/app.js.map",
+            Reply::ok("{\"sourcesContent\":[\"const u = 'https://map.vendor.test/e'\"]}"),
+        );
+    let srv = rt.block_on(Http::tls(site, &["localhost"])).expect("https");
+    let st = State::new("sources");
+    std::fs::write(
+        st.dir.join("known/pro-onlydomains.txt"),
+        "listed.test\na.shop.test\nb.shop.test\nmetrics.news.test\n",
+    )
+    .expect("known");
+    let js = st.file(
+        "bundle.js",
+        &["var u = \"https://beacon.vendor.test/collect\";"],
+    );
+    let files = st.file("files.txt", &[&js]);
+    st.stella(&["--input", &files, "source", "extract"]);
+    let sdk = st.file("sdk.txt", &[&format!("file:{js}")]);
+    st.stella(&["--input", &sdk, "source", "sdk"]);
+    let hosts = st.file("hosts.txt", &["eu-west.collector.shop.test"]);
+    st.stella(&["--input", &hosts, "source", "variants"]);
+    st.stella(&["source", "partial-zones"]);
+    st.stella(&["source", "siblings"]);
+    st.seed(vec![Row::Request {
+        site: s("shop.test"),
+        method: s("GET"),
+        url: format!("https://{}/app.js", srv.addr),
+    }]);
+    st.stella(&["source", "scripts", "--par", "2"]);
+    let origins = st.rows("SELECT host, source FROM origin ORDER BY host, source");
+    let has = |h: &str| origins.iter().any(|r| r[0] == h);
+    assert!(has("beacon.vendor.test"), "{origins:?}");
+    assert!(has("collect.vendor.test"), "{origins:?}");
+    assert!(has("map.vendor.test"), "{origins:?}");
+    assert!(srv.seen().iter().any(|s| s.path == "/app.js"));
+    drop(rt);
+}
