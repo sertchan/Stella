@@ -20,18 +20,28 @@ pkgs.writeShellApplication {
     mapfile -t toml < <(git diff --cached --name-only --diff-filter=ACMR -- '*.toml')
 
     fail=0
+    out=$(mktemp)
+    trap 'rm -f "$out"' EXIT
 
-    if [ ''${#nix[@]} -gt 0 ]; then
-      alejandra --check "''${nix[@]}" || fail=1
-    fi
+    formatter() {
+      local kind=$1 tool=$2 count=$3
+      shift 3
+      if [ "$count" -eq 0 ]; then
+        printf '  %-5s %3s staged file(s)  %-10s skipped\n' "$kind" 0 "$tool"
+      elif "$@" > "$out" 2>&1; then
+        printf '  %-5s %3s staged file(s)  %-10s ok\n' "$kind" "$count" "$tool"
+      else
+        printf '  %-5s %3s staged file(s)  %-10s failed\n' "$kind" "$count" "$tool"
+        sed 's/^/    /' "$out"
+        fail=1
+      fi
+    }
 
-    if [ ''${#rust[@]} -gt 0 ]; then
-      rustfmt --edition 2024 --check "''${rust[@]}" || fail=1
-    fi
-
-    if [ ''${#toml[@]} -gt 0 ]; then
-      taplo format --check "''${toml[@]}" || fail=1
-    fi
+    echo "pre-commit: formatters on staged files"
+    formatter nix alejandra "''${#nix[@]}" alejandra --check --quiet "''${nix[@]}"
+    formatter rust rustfmt "''${#rust[@]}" rustfmt --edition 2024 --check "''${rust[@]}"
+    formatter toml taplo "''${#toml[@]}" env RUST_LOG=warn taplo format --check "''${toml[@]}"
+    echo
 
     stella-lint sources . || fail=1
 
