@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_names, stdin_rows};
+use crate::ctx::{Ctx, Out};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::time::{Duration, Instant};
@@ -52,7 +52,8 @@ async fn each<T: Send + 'static, F, Fut>(
 pub async fn adtech(ctx: &mut Ctx, par: usize, min_intermediary: usize) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("adstxt")?;
-    let sites: Vec<String> = stdin_names()
+    let sites: Vec<String> = ctx
+        .names()
         .into_iter()
         .filter(|s| !done.contains(s))
         .collect();
@@ -373,7 +374,7 @@ pub async fn extract(ctx: &mut Ctx) -> Result<()> {
     let c = web(30)?;
     let known = ctx.known();
     let mut out = Out::new();
-    for row in stdin_rows() {
+    for row in ctx.lines() {
         let Some(src) = row.first().map(|s| s.trim().to_string()) else {
             continue;
         };
@@ -413,7 +414,7 @@ pub async fn extract(ctx: &mut Ctx) -> Result<()> {
 }
 
 pub async fn passive(ctx: &mut Ctx, par: usize) -> Result<()> {
-    passive_zones(ctx, stdin_names(), par).await
+    passive_zones(ctx, ctx.names(), par).await
 }
 
 pub async fn passive_zones(ctx: &mut Ctx, input: Vec<String>, par: usize) -> Result<()> {
@@ -504,7 +505,8 @@ async fn extension_file(c: &reqwest::Client, store: &extension::Store) -> Option
 pub async fn extensions(ctx: &mut Ctx, par: usize) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("extension")?;
-    let keys: Vec<String> = stdin_rows()
+    let keys: Vec<String> = ctx
+        .lines()
         .into_iter()
         .filter_map(|r| r.first().and_then(|l| extension::Store::parse(l)))
         .map(|s| s.key())
@@ -632,7 +634,8 @@ async fn sdk_hosts(
 pub async fn sdks(ctx: &mut Ctx, par: usize) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("sdk")?;
-    let keys: Vec<String> = stdin_rows()
+    let keys: Vec<String> = ctx
+        .lines()
         .into_iter()
         .filter_map(|r| r.first().and_then(|l| sdk::Package::parse(l)))
         .map(|p| p.key())

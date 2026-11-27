@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_rows};
+use crate::ctx::{Ctx, Out};
 use crate::pipeline::{self, DnsArgs, ProbeArgs};
 use anyhow::Result;
 use rustc_hash::FxHashMap;
@@ -25,7 +25,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     let w = ctx.store.writer()?;
     let mut pinned: Vec<(String, IpAddr)> = Vec::new();
     let mut unresolved = Vec::new();
-    for row in stdin_rows() {
+    for row in ctx.lines() {
         let Some(host) = row.first().and_then(|h| stella_core::name::normalize(h)) else {
             continue;
         };

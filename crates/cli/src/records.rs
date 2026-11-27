@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_names};
+use crate::ctx::{Ctx, Out};
 use crate::pipeline::DnsArgs;
 use anyhow::Result;
 use rustc_hash::FxHashSet;
@@ -52,7 +52,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             .into_iter()
             .collect()
     } else {
-        stdin_names()
+        ctx.names()
     };
     hosts.sort_unstable();
     hosts.dedup();

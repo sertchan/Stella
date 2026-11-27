@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_names};
+use crate::ctx::{Ctx, Out};
 use anyhow::Result;
 use stella_core::config::{KNOWN_LIST_URL, KNOWN_LISTS, PSL_URL};
 use stella_net::client::{self, Options};
@@ -23,7 +23,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     match args.cmd {
         Cmd::Sync => sync(ctx).await?,
         Cmd::Check => {
-            let names = stdin_names();
+            let names = ctx.names();
             let known = ctx.known();
             let mut out = Out::new();
             for n in names {

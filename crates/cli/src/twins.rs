@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_rows};
+use crate::ctx::{Ctx, Out};
 use crate::pipeline::{self, DnsArgs, ProbeArgs};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -48,7 +48,7 @@ fn signature(p: &HostProbe) -> Option<String> {
 }
 
 pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
-    verify(ctx, &args.dns, &args.probe, stdin_rows())
+    verify(ctx, &args.dns, &args.probe, ctx.lines())
         .await
         .map(|_| ())
 }

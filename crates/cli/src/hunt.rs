@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_names};
+use crate::ctx::{Ctx, Out};
 use crate::pipeline::{self, DnsArgs, ProbeArgs};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -64,7 +64,7 @@ struct Round {
 }
 
 pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
-    let input = stdin_names();
+    let input = ctx.names();
     hunt(ctx, &args, input).await.map(|_| ())
 }
 

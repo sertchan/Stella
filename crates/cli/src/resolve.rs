@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_names};
+use crate::ctx::{Ctx, Out};
 use crate::pipeline::{self, DnsArgs};
 use anyhow::Result;
 use std::time::Instant;
@@ -13,7 +13,7 @@ pub struct Args {
 }
 
 pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
-    let names = stdin_names();
+    let names = ctx.names();
     let started = Instant::now();
     let w = ctx.store.writer()?;
     let n = names.len();

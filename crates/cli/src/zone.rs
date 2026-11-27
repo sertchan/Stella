@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_names};
+use crate::ctx::{Ctx, Out};
 use crate::pipeline::DnsArgs;
 use anyhow::Result;
 use std::time::{Duration, Instant};
@@ -27,7 +27,8 @@ pub struct Args {
 pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("zone")?;
-    let zones: Vec<String> = stdin_names()
+    let zones: Vec<String> = ctx
+        .names()
         .into_iter()
         .filter(|z| !done.contains(z))
         .collect();

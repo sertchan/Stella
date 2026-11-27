@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_names};
+use crate::ctx::{Ctx, Out};
 use anyhow::Result;
 use rusqlite::params;
 use rustc_hash::FxHashMap;
@@ -92,7 +92,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             .filter_map(|mut r| r.pop())
             .collect()
     } else {
-        stdin_names()
+        ctx.names()
     };
     let mut cases = Vec::new();
     for host in hosts {

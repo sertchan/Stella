@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_names};
+use crate::ctx::{Ctx, Out};
 use anyhow::Result;
 use std::time::Instant;
 use stella_core::store::Row;
@@ -236,10 +236,11 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             par,
             subzone,
             incremental,
-        } => ct_zones(ctx, stdin_names(), par, subzone, incremental).await?,
+        } => ct_zones(ctx, ctx.names(), par, subzone, incremental).await?,
         Cmd::Site { par } => {
             let done = ctx.store.done("site")?;
-            let sites: Vec<String> = stdin_names()
+            let sites: Vec<String> = ctx
+                .names()
                 .into_iter()
                 .filter(|s| !done.contains(s))
                 .collect();
@@ -403,7 +404,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
                 labels::learn(&ctx.store.conn, &ctx.psl, min)?
             };
             let mut sites: Vec<String> = if stdin_zones {
-                stdin_names()
+                ctx.names()
             } else {
                 let c = client::build(&Options::default())?;
                 let path = toplist::fetch(&c, &list, &ctx.paths.cache()).await?;
@@ -438,7 +439,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             let seeds: Vec<String> = if from_known {
                 ctx.known().domains().map(str::to_string).collect()
             } else {
-                stdin_names()
+                ctx.names()
             };
             let known = ctx.known();
             let mut out = Out::new();

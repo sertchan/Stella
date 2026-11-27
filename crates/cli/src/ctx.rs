@@ -1,6 +1,7 @@
 use anyhow::Result;
 use rustc_hash::FxHashSet;
-use std::io::{BufRead, BufWriter, Stdout, Write};
+use std::io::{BufRead, BufReader, BufWriter, Stdout, Write};
+use std::path::PathBuf;
 use stella_core::config::{KNOWN_LISTS, Paths};
 use stella_core::known::Known;
 use stella_core::psl::Psl;
@@ -8,6 +9,7 @@ use stella_core::store::Store;
 
 pub struct Ctx {
     pub paths: Paths,
+    pub input: Option<PathBuf>,
     pub store: Store,
     pub psl: Psl,
     known: std::cell::OnceCell<Known>,
@@ -24,6 +26,7 @@ impl Ctx {
         });
         Ok(Self {
             paths,
+            input: None,
             store,
             psl,
             known: std::cell::OnceCell::new(),
@@ -60,14 +63,34 @@ impl Ctx {
         });
         stella_core::name::suffixes(host).find_map(|s| map.get(s).map(String::as_str))
     }
+
+    fn input_lines(&self) -> Vec<String> {
+        let read = |r: &mut dyn BufRead| r.lines().map_while(Result::ok).collect::<Vec<_>>();
+        match &self.input {
+            Some(p) => match std::fs::File::open(p) {
+                Ok(f) => read(&mut BufReader::new(f)),
+                Err(e) => {
+                    eprintln!("input: {}: {e}", p.display());
+                    Vec::new()
+                }
+            },
+            None => read(&mut std::io::stdin().lock()),
+        }
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        names_in(self.input_lines())
+    }
+
+    pub fn lines(&self) -> Vec<Vec<String>> {
+        rows_in(self.input_lines())
+    }
 }
 
-pub fn stdin_names() -> Vec<String> {
+pub fn names_in(lines: Vec<String>) -> Vec<String> {
     let mut seen = FxHashSet::default();
-    std::io::stdin()
-        .lock()
-        .lines()
-        .map_while(Result::ok)
+    lines
+        .into_iter()
         .filter_map(|l| {
             let first = l.split(['\t', ' ', ',']).next()?.to_string();
             stella_core::name::normalize(&first)
@@ -76,11 +99,9 @@ pub fn stdin_names() -> Vec<String> {
         .collect()
 }
 
-pub fn stdin_rows() -> Vec<Vec<String>> {
-    std::io::stdin()
-        .lock()
-        .lines()
-        .map_while(Result::ok)
+pub fn rows_in(lines: Vec<String>) -> Vec<Vec<String>> {
+    lines
+        .into_iter()
         .filter(|l| !l.trim().is_empty())
         .map(|l| l.split('\t').map(str::to_string).collect())
         .collect()

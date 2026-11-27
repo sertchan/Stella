@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_rows};
+use crate::ctx::{Ctx, Out};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::time::Instant;
@@ -45,7 +45,8 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
     match args.cmd {
         Cmd::Fetch { par } => {
             let done = ctx.store.done("apk-fetch")?;
-            let pkgs: Vec<String> = stdin_rows()
+            let pkgs: Vec<String> = ctx
+                .lines()
                 .into_iter()
                 .filter_map(|r| r.first().map(|p| p.trim().to_string()))
                 .filter(|p| fetch::valid_package(p) && !done.contains(p))

@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_rows};
+use crate::ctx::{Ctx, Out};
 use anyhow::Result;
 use std::time::{Duration, Instant};
 use stella_core::store::Row;
@@ -79,7 +79,8 @@ fn url_of(raw: &str) -> Option<String> {
 pub async fn crawl(ctx: &mut Ctx, args: CrawlArgs) -> Result<()> {
     let started = Instant::now();
     let done = ctx.store.done("crawl")?;
-    let urls: Vec<String> = stdin_rows()
+    let urls: Vec<String> = ctx
+        .lines()
         .into_iter()
         .filter_map(|r| r.first().and_then(|u| url_of(u)))
         .filter(|u| !done.contains(&done_key(args.profile.profile(), u)))

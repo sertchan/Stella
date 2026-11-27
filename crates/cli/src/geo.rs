@@ -1,4 +1,4 @@
-use crate::ctx::{Ctx, Out, stdin_names};
+use crate::ctx::{Ctx, Out};
 use crate::pipeline::{DnsArgs, ProbeArgs};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -47,7 +47,7 @@ pub async fn run(ctx: &mut Ctx, args: Args) -> Result<()> {
             .into_iter()
             .collect()
     } else {
-        stdin_names()
+        ctx.names()
     };
     let cfg = args.dns.config();
     let mut local: FxHashMap<String, FxHashSet<Ipv4Addr>> = FxHashMap::default();
