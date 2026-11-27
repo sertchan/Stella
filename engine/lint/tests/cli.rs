@@ -100,6 +100,8 @@ fn sources_reports_and_passes() {
 fn commit_messages_and_ranges_are_checked() {
     let s = Scratch::new("commits");
     git(&s.0, &["init", "-q", "-b", "main"]);
+    s.write("engine/dns/Cargo.toml", "[package]\n");
+    s.write("engine/cli/Cargo.toml", "[package]\n");
     s.write("engine/dns/src/wire.rs", "pub fn a() {}\n");
     git(&s.0, &["add", "."]);
     git(&s.0, &["commit", "-q", "-m", "dns/wire: add parser"]);
@@ -168,7 +170,7 @@ fn outdated_reads_every_tool() {
         std::os::unix::fs::PermissionsExt::set_mode(&mut perm, 0o755);
         std::fs::set_permissions(tools.join(t), perm).expect("chmod");
     }
-    s.write("Cargo.lock", "version = 4\n");
+    s.write("engine/Cargo.lock", "version = 4\n");
     s.write(
         "flake.lock",
         "{\"nodes\":{\"nixpkgs\":{\"locked\":{\"lastModified\":0}},\"root\":{}}}\n",
@@ -181,7 +183,7 @@ fn outdated_reads_every_tool() {
     let text = stderr(&out);
     assert_eq!(out.status.code(), Some(1), "{text}");
     for section in [
-        "outdated: Cargo.lock\n  0 locked packages, 1 with a newer compatible release",
+        "outdated: engine/Cargo.lock\n  0 locked packages, 1 with a newer compatible release",
         "outdated: flake.lock inputs\n",
         "nixpkgs  - 1970-01-01  - 1970-01-24  23 day(s)  outdated",
         "actions/checkout  oldsha  newsha v9       deprecated, outdated  .github/workflows/ci.yml",
@@ -189,8 +191,8 @@ fn outdated_reads_every_tool() {
         assert!(text.contains(section), "{section} missing in {text}");
     }
     for rule in [
-        "error[outdated-lockfile] Cargo.lock zip",
-        "error[outdated-dependency] Cargo.toml stella -> clap",
+        "error[outdated-lockfile] engine/Cargo.lock zip",
+        "error[outdated-dependency] engine/Cargo.toml stella -> clap",
         "error[outdated-flake-input] flake.lock nixpkgs",
         "error[outdated-action] .github/workflows/ci.yml actions/checkout",
         "error[deprecated-action] .github/workflows/ci.yml actions/checkout",

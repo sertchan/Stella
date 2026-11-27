@@ -1,5 +1,12 @@
 [global]
-excludes = ["target/**", "result*", "Cargo.lock", "flake.lock", "LICENSE"]
+excludes = [
+  "engine/target/**",
+  "result*",
+  "engine/Cargo.lock",
+  "flake.lock",
+  "LICENSE",
+  "lists/**",
+]
 
 [formatter.nix]
 command = "alejandra"

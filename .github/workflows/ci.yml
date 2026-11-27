@@ -161,9 +161,9 @@ jobs:
             echo "coverage per crate"
             printf '  %-10s %20s  %20s  %20s\n' crate lines functions regions
             jq -r '.data[0].files
-              | group_by(.filename | capture("engine/(?<c>[^/]+)/").c)
+              | group_by(.filename | capture("(?<c>[^/]+)/(src|tests)/").c)
               | map({
-                  c: (.[0].filename | capture("engine/(?<c>[^/]+)/").c),
+                  c: (.[0].filename | capture("(?<c>[^/]+)/(src|tests)/").c),
                   t: (map(.summary) | {
                     lc: (map(.lines.covered) | add), ln: (map(.lines.count) | add),
                     fc: (map(.functions.covered) | add), fn: (map(.functions.count) | add),
@@ -183,7 +183,7 @@ jobs:
               | map(select(.summary.lines.count > .summary.lines.covered))
               | sort_by(.summary.lines.covered - .summary.lines.count)
               | .[:12][]
-              | [(.filename | sub(".*/engine/"; "")), .summary.lines.covered, .summary.lines.count, .summary.lines.percent]
+              | [(.filename | capture("(?<p>[^/]+/(src|tests)/.*)$").p), .summary.lines.covered, .summary.lines.count, .summary.lines.percent]
               | @tsv' "$totals" |
             while IFS=$'\t' read -r f a b p; do printf '  %-36s %13s %5.1f%%\n' "$f" "$a/$b" "$p"; done
           } > "$report"
@@ -280,14 +280,14 @@ jobs:
           audit() { nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit "$@"; }
           report="$RUNNER_TEMP/report.txt"
           status=0
-          audit --deny warnings --file Cargo.lock || status=1
-          audit --json --file Cargo.lock > audit.json || true
+          audit --deny warnings --file engine/Cargo.lock || status=1
+          audit --json --file engine/Cargo.lock > audit.json || true
           {
             printf '%-9s%s\n' check cargo-audit
             printf '%-9s%s\n' purpose "Every locked crate is checked against the RustSec advisory database. A known vulnerability, an unmaintained crate or a yanked release is rejected."
             printf '%-9s%s\n' tool "$(audit --version)"
             jq -r '.database | "database \(.["advisory-count"]) advisories, commit \(.["last-commit"]), updated \(.["last-updated"])"' audit.json
-            jq -r '"scope    Cargo.lock with \(.lockfile["dependency-count"]) crates"' audit.json
+            jq -r '"scope    engine/Cargo.lock with \(.lockfile["dependency-count"]) crates"' audit.json
             echo
             jq -r '"vulnerabilities  \(.vulnerabilities.count)", (.warnings // {} | to_entries[] | "\(.key)  \(.value | length)")' audit.json | sed 's/^/  /'
             jq -r '

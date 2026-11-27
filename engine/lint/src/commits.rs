@@ -167,6 +167,22 @@ const ENGINE_DIRS: [&str; 2] = [ENGINE_DIR, "crates"];
 
 pub const LISTS_DIR: &str = "lists";
 
+const CARGO_FILES: [&str; 5] = [
+    "Cargo.toml",
+    "Cargo.lock",
+    "deny.toml",
+    "clippy.toml",
+    "rustfmt.toml",
+];
+
+pub fn is_lock(path: &str) -> bool {
+    in_engine(path).unwrap_or(path) == "Cargo.lock"
+}
+
+pub fn is_crate_manifest(path: &str) -> bool {
+    path.ends_with("/Cargo.toml") && in_engine(path).unwrap_or(path) != "Cargo.toml"
+}
+
 fn in_engine(path: &str) -> Option<&str> {
     ENGINE_DIRS
         .iter()
@@ -179,10 +195,8 @@ pub fn covers(atom: &str, path: &str) -> bool {
         "treewide" => true,
         "flake" => path == "flake.nix" || path == "flake.lock",
         "cargo" => {
-            matches!(
-                path,
-                "Cargo.toml" | "Cargo.lock" | "deny.toml" | "clippy.toml" | "rustfmt.toml"
-            ) || path.starts_with(".cargo/")
+            let inner = in_engine(path).unwrap_or(path);
+            CARGO_FILES.contains(&inner) || inner.starts_with(".cargo/")
         }
         "meta" => {
             path.starts_with(".github/")
@@ -251,12 +265,7 @@ fn narrowest(path: &str) -> String {
 pub fn suggest(files: &[String]) -> String {
     let mut atoms: BTreeSet<String> = files
         .iter()
-        .filter(|f| {
-            *f != "Cargo.lock"
-                || !files
-                    .iter()
-                    .any(|g| g.ends_with("Cargo.toml") && g != "Cargo.toml")
-        })
+        .filter(|f| !is_lock(f) || !files.iter().any(|g| is_crate_manifest(g)))
         .map(|f| narrowest(f))
         .collect();
     if atoms.len() > 1 {
@@ -471,7 +480,7 @@ pub fn scope_files(
     let lock_ok = files.iter().any(|f| f.ends_with("Cargo.toml"));
     let outside: Vec<&String> = files
         .iter()
-        .filter(|f| !(lock_ok && *f == "Cargo.lock"))
+        .filter(|f| !(lock_ok && is_lock(f)))
         .filter(|f| !atoms.iter().any(|a| covers(a, f)))
         .collect();
     (!outside.is_empty() && atoms.iter().all(|a| valid_atom(a, crates))).then(|| {
@@ -509,7 +518,7 @@ pub fn crates_in(dir: &std::path::Path) -> Vec<String> {
     let mut v: Vec<String> = std::fs::read_dir(dir.join(ENGINE_DIR))
         .map(|d| {
             d.filter_map(std::result::Result::ok)
-                .filter(|e| e.path().is_dir())
+                .filter(|e| e.path().join("Cargo.toml").is_file())
                 .map(|e| e.file_name().to_string_lossy().into_owned())
                 .collect()
         })
@@ -657,6 +666,18 @@ mod tests {
         assert!(covers("dns/wire", "crates/dns/src/wire.rs"));
         assert!(!covers("dns", "engine/dnsx/Cargo.toml"));
         assert!(covers("lists", "lists/ads/domains.txt"));
+        assert!(covers("cargo", "engine/Cargo.toml"));
+        assert!(covers("cargo", "engine/deny.toml"));
+        assert!(covers("cargo", "Cargo.lock"));
+        assert!(!covers("cargo", "engine/dns/Cargo.toml"));
+        assert!(is_lock("engine/Cargo.lock") && !is_lock("engine/dns/Cargo.lock"));
+        assert!(
+            is_crate_manifest("engine/dns/Cargo.toml") && !is_crate_manifest("engine/Cargo.toml")
+        );
+        assert_eq!(
+            suggest(&files(&["engine/dns/Cargo.toml", "engine/Cargo.lock"])),
+            "dns"
+        );
         assert!(!covers("lists", "listsx/a.txt"));
         assert_eq!(suggest(&files(&["lists/ads/hosts.txt"])), "lists");
         assert!(covers("nix/checks", "nix/checks.nix"));

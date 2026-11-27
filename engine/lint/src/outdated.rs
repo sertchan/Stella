@@ -15,6 +15,8 @@ const WHY_DEPRECATED: &str = "A deprecated action stops getting fixes and its ma
 
 pub type Part = (Section, Vec<Finding>);
 
+pub const WORKSPACE: &str = "engine";
+
 fn run(dir: &Path, cmd: &str, args: &[&str]) -> Result<(bool, String, String)> {
     let out = Command::new(cmd)
         .args(args)
@@ -120,7 +122,7 @@ pub fn lock(dir: &Path, label: &str) -> Result<Part> {
             err.trim()
         );
     }
-    let packages = std::fs::read_to_string(dir.join(label))
+    let packages = std::fs::read_to_string(dir.join("Cargo.lock"))
         .map(|t| lock_packages(&t).len())
         .unwrap_or(0);
     let updates = parse_lock_updates(&err);
@@ -487,10 +489,17 @@ pub fn all(
     grace_days: i64,
     with_actions: bool,
 ) -> Result<(Vec<Section>, Vec<Finding>)> {
+    let (workspace, prefix) = if dir.join(WORKSPACE).join("Cargo.lock").is_file() {
+        (dir.join(WORKSPACE), format!("{WORKSPACE}/"))
+    } else {
+        (dir.to_path_buf(), String::new())
+    };
+    let (lock_label, manifest_label) =
+        (format!("{prefix}Cargo.lock"), format!("{prefix}Cargo.toml"));
     std::thread::scope(|s| {
         let jobs = [
-            s.spawn(|| lock(dir, "Cargo.lock")),
-            s.spawn(|| majors(dir, "Cargo.toml")),
+            s.spawn(|| lock(&workspace, &lock_label)),
+            s.spawn(|| majors(&workspace, &manifest_label)),
             s.spawn(|| flake(dir, grace_days)),
             s.spawn(|| {
                 if with_actions {

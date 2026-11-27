@@ -1,6 +1,17 @@
 [workspace]
 resolver = "3"
-members = ["engine/*"]
+members = [
+  "apk",
+  "cli",
+  "core",
+  "crawl",
+  "dns",
+  "lint",
+  "net",
+  "probe",
+  "sources",
+  "testkit",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,14 +20,14 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/sertchan/stella"
 
 [workspace.dependencies]
-stella-core = { path = "engine/core", version = "0.1.0" }
-stella-dns = { path = "engine/dns", version = "0.1.0" }
-stella-net = { path = "engine/net", version = "0.1.0" }
-stella-probe = { path = "engine/probe", version = "0.1.0" }
-stella-sources = { path = "engine/sources", version = "0.1.0" }
-stella-apk = { path = "engine/apk", version = "0.1.0" }
-stella-crawl = { path = "engine/crawl", version = "0.1.0" }
-stella-testkit = { path = "engine/testkit", version = "0.1.0" }
+stella-core = { path = "core", version = "0.1.0" }
+stella-dns = { path = "dns", version = "0.1.0" }
+stella-net = { path = "net", version = "0.1.0" }
+stella-probe = { path = "probe", version = "0.1.0" }
+stella-sources = { path = "sources", version = "0.1.0" }
+stella-apk = { path = "apk", version = "0.1.0" }
+stella-crawl = { path = "crawl", version = "0.1.0" }
+stella-testkit = { path = "testkit", version = "0.1.0" }
 aho-corasick = "1"
 anyhow = "1"
 base64 = "0.23"

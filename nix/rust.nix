@@ -2,17 +2,12 @@
   pkgs,
   crane,
 }: let
-  inherit (pkgs.lib.fileset) toSource unions;
+  inherit (pkgs.lib.fileset) toSource difference;
   craneLib = crane.mkLib pkgs;
   common = {
     src = toSource {
-      root = ../.;
-      fileset = unions [
-        ../Cargo.toml
-        ../Cargo.lock
-        ../clippy.toml
-        ../engine
-      ];
+      root = ../engine;
+      fileset = difference ../engine ../engine/deny.toml;
     };
     pname = "stella";
     version = "0.1.0";

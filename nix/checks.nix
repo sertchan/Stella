@@ -6,7 +6,7 @@
   stella,
   tests,
 }: let
-  inherit (pkgs.lib.fileset) toSource unions;
+  inherit (pkgs.lib.fileset) toSource;
   count = pattern: dir: "$(find ${dir} -name '${pattern}' -not -path '*/target/*' | wc -l)";
   header = {
     name,
@@ -77,7 +77,7 @@
       postInstall = (old.postInstall or "") + passed name;
     });
   formatted = "Run nix fmt and commit the result. The pre-commit hook checks this before every commit.";
-  crates = "$(find ${self}/engine -mindepth 1 -maxdepth 1 -type d | wc -l)";
+  crates = "$(find ${self}/engine -mindepth 2 -maxdepth 2 -name Cargo.toml | wc -l)";
   rustFiles = "${count "*.rs" "${self}/engine"} Rust files in ${crates} crates";
   nixFiles = "${count "*.nix" self} Nix files";
 in {
@@ -110,7 +110,7 @@ in {
     tool = "rustfmt --version";
     scope = "${rustFiles}, edition 2024";
     script = ''
-      for c in ${self}/engine/*/; do
+      for c in $(dirname $(find ${self}/engine -mindepth 2 -maxdepth 2 -name Cargo.toml) | sort); do
         printf '  %-10s %4s files\n' "$(basename "$c")" "$(find "$c" -name '*.rs' | wc -l)"
       done
       find ${self}/engine -name '*.rs' -exec rustfmt --edition 2024 --check {} +
@@ -168,7 +168,7 @@ in {
     fix = "Remove each dependency named above from its Cargo.toml and run cargo check to update Cargo.lock.";
     tool = "echo cargo-machete $(cargo-machete --version)";
     scope = "${count "Cargo.toml" self} Cargo.toml files";
-    script = "cargo-machete ${self}";
+    script = "cargo-machete ${self}/engine";
   };
   clippy =
     explain {
@@ -211,13 +211,8 @@ in {
     } (rust.craneLib.cargoDeny (rust.common
       // {
         src = toSource {
-          root = ../.;
-          fileset = unions [
-            ../Cargo.toml
-            ../Cargo.lock
-            ../engine
-            ../deny.toml
-          ];
+          root = ../engine;
+          fileset = ../engine;
         };
       }));
   test =
