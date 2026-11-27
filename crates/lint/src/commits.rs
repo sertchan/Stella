@@ -22,9 +22,6 @@ const WHY_SCOPE: &str = "A scope must name a real part of the tree. Unknown scop
 const WHY_FILES: &str = "The scope is a promise about which files a commit touches. A commit that edits files outside its scope misleads every reader of the history, and it usually mixes unrelated changes that belong in separate commits.";
 const WHY_CASE: &str = "The summary starts with a lowercase imperative verb, like add, fix, remove or make, so that subjects read as one uniform list.";
 const WHY_PUNCT: &str = "Subjects are a single plain phrase. A trailing full stop, a semicolon or a dash means the subject is a sentence or two thoughts, and two thoughts belong in two commits.";
-const WHY_THE: &str =
-    "Subjects are kept short and dense. The article the adds length without adding meaning.";
-const WHY_DROP: &str = "The history uses one word for taking something out: remove. Drop also means a DROP verdict in Stella, so it is ambiguous in a subject.";
 const WHY_LENGTH: &str = "Subjects longer than 72 characters are cut off in git log --oneline, in GitHub and in most mail clients.";
 const WHY_SPACING: &str =
     "Doubled or trailing spaces in a subject are typos that make searching the history unreliable.";
@@ -244,11 +241,6 @@ fn scopes_help(crates: &[String]) -> String {
     )
 }
 
-fn has_word(text: &str, word: &str) -> bool {
-    text.split(|c: char| !c.is_ascii_alphanumeric())
-        .any(|w| w == word)
-}
-
 pub fn check_message(place: &str, message: &str, crates: &[String]) -> Vec<Finding> {
     let mut out = Vec::new();
     let msg = clean(message);
@@ -321,23 +313,6 @@ pub fn check_message(place: &str, message: &str, crates: &[String]) -> Vec<Findi
                 .fix("Remove the punctuation, or split the work into two commits."),
         );
     }
-    let lower = summary.to_ascii_lowercase();
-    if has_word(&lower, "the") {
-        out.push(
-            Finding::new("summary-article", &at, WHY_THE)
-                .found(summary)
-                .expected(format!("{scope}: {}", without_the(summary)))
-                .fix("Remove the word the."),
-        );
-    }
-    if has_word(&lower, "drop") || has_word(&lower, "drops") || has_word(&lower, "dropped") {
-        out.push(
-            Finding::new("summary-remove", &at, WHY_DROP)
-                .found(summary)
-                .expected("remove instead of drop")
-                .fix("Use remove for taking something out."),
-        );
-    }
     if subject.chars().count() > MAX_SUBJECT {
         out.push(
             Finding::new("subject-length", &at, WHY_LENGTH)
@@ -380,13 +355,6 @@ fn lower_first(s: &str) -> String {
     c.next()
         .map(|f| f.to_lowercase().chain(c).collect())
         .unwrap_or_default()
-}
-
-fn without_the(s: &str) -> String {
-    s.split(' ')
-        .filter(|w| !w.eq_ignore_ascii_case("the"))
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 pub fn check_commit(c: &Commit, crates: &[String]) -> Vec<Finding> {
@@ -591,8 +559,8 @@ mod tests {
         assert_eq!(rules("dns: Add resolver"), ["summary-case"]);
         assert_eq!(rules("dns: add resolver."), ["summary-punctuation"]);
         assert_eq!(rules("dns: add a; b"), ["summary-punctuation"]);
-        assert_eq!(rules("dns: add the resolver"), ["summary-article"]);
-        assert_eq!(rules("dns: drop old resolver"), ["summary-remove"]);
+        assert!(rules("dns: add the resolver").is_empty());
+        assert!(rules("dns: drop old resolver").is_empty());
         assert_eq!(
             rules(&format!("dns: {}", "a".repeat(80))),
             ["subject-length"]
@@ -606,7 +574,6 @@ mod tests {
         assert_eq!(rules("fixup! dns: add resolver"), ["work-in-progress"]);
         let f = check_message("msg", "dns: Add the thing.", &crates());
         assert_eq!(f[0].expected, "dns: add the thing.");
-        assert_eq!(f[2].expected, "dns: Add thing.");
     }
 
     #[test]
