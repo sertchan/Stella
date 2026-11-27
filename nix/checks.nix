@@ -143,6 +143,15 @@ in {
     scope = nixFiles;
     script = "deadnix --fail ${self} && echo \"deadnix found no unused binding or argument\"";
   };
+  lists = mkCheck {
+    name = "lists";
+    inputs = [lint];
+    why = "The lists are what Stella ships. HaGeZi and every blocker fetch them directly, so a broken header, a wrong entry count, a bad rule or two formats that disagree reach users at once.";
+    fix = "Run stella publish with the release build from nix run .#stella and commit the lists folder as it comes out. Never edit a list by hand.";
+    tool = "stella-lint --version";
+    scope = "$(find ${self}/lists -name '*.txt' | wc -l) list files under lists";
+    script = "stella-lint lists ${self}/lists";
+  };
   source-lint = mkCheck {
     name = "source-lint";
     inputs = [lint];
