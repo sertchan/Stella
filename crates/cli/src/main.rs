@@ -55,6 +55,13 @@ struct Cli {
         help = "Read names or rows from this file instead of stdin"
     )]
     input: Option<std::path::PathBuf>,
+    #[arg(
+        long = "endpoint",
+        global = true,
+        value_name = "HOST=URL",
+        help = "Send requests for HOST to URL instead, for a mirror or a local test server, repeatable"
+    )]
+    endpoints: Vec<String>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -140,6 +147,12 @@ fn main() -> Result<()> {
 }
 
 fn run(cli: Cli) -> Result<()> {
+    for e in &cli.endpoints {
+        let (host, url) = e
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("--endpoint {e}: expected HOST=URL"))?;
+        stella_net::client::redirect(host, url);
+    }
     stella_core::progress::set_json(cli.progress_json);
     let mut paths = Paths::from_env();
     if let Some(s) = cli.state {
