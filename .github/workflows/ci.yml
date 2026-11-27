@@ -294,6 +294,9 @@ jobs:
             range="$BASE..$HEAD"
           elif [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
             range="origin/main..$AFTER"
+          elif ! git merge-base --is-ancestor "$BEFORE" "$AFTER" 2> /dev/null; then
+            echo "The push rewrote history, so every commit on main is checked."
+            range="$AFTER"
           else
             range="$BEFORE..$AFTER"
           fi
