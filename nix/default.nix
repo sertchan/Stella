@@ -8,7 +8,7 @@
   stella = import ./package.nix {inherit pkgs rust;};
   lint = import ./lint.nix {inherit pkgs rust;};
   checks = import ./checks.nix {
-    inherit pkgs rust lint;
+    inherit pkgs rust lint stella;
     inherit (inputs) self;
     tests = import ./tests.nix {inherit pkgs rust;};
   };
@@ -25,6 +25,6 @@ in {
   formatter.${system} = import ./fmt.nix {inherit pkgs;};
   checks.${system} = checks;
   legacyPackages.${system}.deps = {
-    inherit (rust) debugDeps measuredDeps lintDeps;
+    inherit (rust) releaseDeps debugDeps measuredDeps lintDeps;
   };
 }

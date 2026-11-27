@@ -3,6 +3,7 @@
   self,
   rust,
   lint,
+  stella,
   tests,
 }: let
   inherit (pkgs.lib.fileset) toSource unions;
@@ -39,6 +40,13 @@
     });
   formatted = "Run nix fmt and commit the result. The pre-commit hook checks this before every commit.";
 in {
+  build = mkCheck {
+    name = "build";
+    inputs = [stella];
+    why = "The release build is the binary that every real scan runs. It compiles with optimizations and fat link time optimization, which can fail where a debug build passes, and it wraps the runtime tools that Stella starts.";
+    fix = "Run nix build in nix develop and fix the first error it reports. Then run result/bin/stella --help to see that the wrapped binary starts.";
+    script = "stella --help > /dev/null";
+  };
   alejandra = mkCheck {
     name = "alejandra";
     inputs = [pkgs.alejandra];
