@@ -70,47 +70,57 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           checks=.#checks.x86_64-linux
+          row() { printf '%-12s %s\n' "$1" "$2"; }
+          lock() { jq -r --arg n "$1" '.nodes[$n].locked | "\(.rev)  \(.lastModified | todate)"' flake.lock; }
           {
-            echo "## Flake checks"
+            echo '```text'
+            row commit "$GITHUB_SHA"
+            row event "$GITHUB_EVENT_NAME  $GITHUB_REF"
+            row nix "$(nix --version | awk '{print $NF}')"
+            row rustc "$(nix eval --raw --inputs-from . nixpkgs#rustc.version)"
+            row nixpkgs "$(lock nixpkgs)"
+            row crane "$(lock crane)"
             echo
-            echo "| check | result |"
-            echo "| --- | --- |"
+            echo "checks"
             for c in $(nix eval --json "$checks" --apply builtins.attrNames | jq -r '.[]'); do
               out=$(nix eval --raw "$checks.$c.outPath")
-              if nix path-info "$out" > /dev/null 2>&1; then r="✅ pass"; else r="❌ fail"; fi
-              echo "| \`$c\` | $r |"
+              if nix path-info "$out" > /dev/null 2>&1; then r=pass; else r=FAIL; fi
+              printf '  %-16s %-5s %s\n' "$c" "$r" "$out"
             done
-            tests=$(nix eval --raw "$checks.tests.outPath")
-            if [ -f "$tests/junit.xml" ]; then
-              head=$(grep -o '<testsuites [^>]*>' "$tests/junit.xml")
+            junit="$(nix eval --raw "$checks.tests.outPath")/junit.xml"
+            if [ -f "$junit" ]; then
+              head=$(grep -o '<testsuites [^>]*>' "$junit")
               attr() { echo "$head" | grep -o " $1=\"[^\"]*\"" | cut -d'"' -f2; }
               echo
-              echo "**Tests:** $(attr tests) run, $(attr failures) failed, $(attr skipped) skipped in $(attr time) s under nextest with overflow checks."
+              row tests "$(attr tests) run, $(attr failures) failed, $(attr skipped) skipped, $(attr time) s, nextest, dev profile with overflow checks"
+              echo "  slowest"
+              grep -o '<testcase [^>]*>' "$junit" |
+                sed -E 's/.* name="([^"]*)" classname="([^"]*)".* time="([^"]*)".*/\3 \2 \1/' |
+                sort -rn | head -5 |
+                while read -r t c n; do printf '    %8s s  %-24s %s\n' "$t" "$c" "$n"; done
             fi
             if [ -e result ]; then
-              bin=$(stat -c %s result/bin/.stella-wrapped)
-              closure=$(nix path-info --closure-size ./result | awk '{print $2}')
+              bin=result/bin/.stella-wrapped
               echo
-              echo "**Binary:** $((bin / 1024 / 1024)) MiB, runtime closure $((closure / 1024 / 1024)) MiB, sha256 \`$(sha256sum result/bin/.stella-wrapped | cut -c1-16)…\`"
+              row binary "$(readlink -f "$bin")"
+              row size "$(stat -c %s "$bin") bytes"
+              row sha256 "$(sha256sum "$bin" | cut -d' ' -f1)"
+              row closure "$(nix path-info --closure-size ./result | awk '{printf "%d MiB", $2 / 1048576}') in $(nix path-info --recursive ./result | wc -l) store paths"
             fi
-            echo
             case "$REPRO" in
-              success) echo "**Reproducible:** ✅ a second build gave the same bytes." ;;
-              failure) echo "**Reproducible:** ❌ a second build failed or gave different bytes." ;;
-              *) echo "**Reproducible:** not checked." ;;
+              success) row rebuild "identical, nix build --rebuild gave the same bytes" ;;
+              failure) row rebuild "FAIL, nix build --rebuild failed or gave different bytes" ;;
+              *) row rebuild "not run" ;;
             esac
             if [ -f dist/stella.cdx.json ]; then
               echo
-              echo "## Signed build"
-              echo
-              echo "| file | content |"
-              echo "| --- | --- |"
-              echo "| \`stella\` | sha256 \`$(sha256sum dist/stella | cut -d' ' -f1)\` |"
-              echo "| \`stella.cdx.json\` | $(jq '.components | length' dist/stella.cdx.json) Rust crates |"
-              echo "| \`closure.cdx.json\` | $(jq '.components | length' dist/closure.cdx.json) Nix store paths |"
-              echo
-              echo "Verify a downloaded binary with \`gh attestation verify stella -R $REPO\`."
+              echo "signed build"
+              printf '  %-18s sha256 %s\n' stella "$(sha256sum dist/stella | cut -d' ' -f1)"
+              printf '  %-18s %s Rust crates\n' stella.cdx.json "$(jq '.components | length' dist/stella.cdx.json)"
+              printf '  %-18s %s Nix store paths\n' closure.cdx.json "$(jq '.components | length' dist/closure.cdx.json)"
+              printf '  %-18s gh attestation verify stella -R %s\n' verify "$REPO"
             fi
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
   coverage:
@@ -126,26 +136,39 @@ jobs:
         run: nix build --print-build-logs .#coverage -o coverage
       - name: summary
         run: |
-          bar() { s=""; for ((i = 0; i < 20; i++)); do if ((i < $1 / 5)); then s+="█"; else s+="░"; fi; done; printf '%s' "$s"; }
           totals=coverage/summary.json
-          lines=$(jq '.data[0].totals.lines.percent | floor' "$totals")
+          cell() { awk -v a="$1" -v b="$2" 'BEGIN { if (b == 0) printf "%13s %6s", "-", "-"; else printf "%13s %5.1f%%", a "/" b, a * 100 / b }'; }
+          line() { printf '%-10s %s  %s  %s\n' "$1" "$(cell "$2" "$3")" "$(cell "$4" "$5")" "$(cell "$6" "$7")"; }
           {
-            echo "## Line coverage"
-            echo
-            echo "**Total:** $(bar "$lines") $(jq -r '.data[0].totals | "\(.lines.percent * 10 | floor / 10)% of lines, \(.functions.percent * 10 | floor / 10)% of functions"' "$totals")"
-            echo
-            echo "| crate | | lines covered | share |"
-            echo "| --- | --- | --- | --- |"
+            echo '```text'
+            printf '%-10s %20s  %20s  %20s\n' crate lines functions regions
             jq -r '.data[0].files
-              | map({c: (.filename | capture("crates/(?<c>[^/]+)/").c), n: .summary.lines.count, k: .summary.lines.covered})
-              | group_by(.c)
-              | map({c: .[0].c, n: (map(.n) | add), k: (map(.k) | add)})
-              | sort_by(-(.k / .n))
+              | group_by(.filename | capture("crates/(?<c>[^/]+)/").c)
+              | map({
+                  c: (.[0].filename | capture("crates/(?<c>[^/]+)/").c),
+                  t: (map(.summary) | {
+                    lc: (map(.lines.covered) | add), ln: (map(.lines.count) | add),
+                    fc: (map(.functions.covered) | add), fn: (map(.functions.count) | add),
+                    rc: (map(.regions.covered) | add), rn: (map(.regions.count) | add)
+                  })
+                })
+              | sort_by(-(.t.lc / .t.ln))
               | .[]
-              | "\(.c) \(.k) \(.n) \(.k * 100 / .n | floor)"' "$totals" |
-            while read -r c k n p; do
-              echo "| \`$c\` | $(bar "$p") | $k / $n | $p% |"
-            done
+              | [.c, .t.lc, .t.ln, .t.fc, .t.fn, .t.rc, .t.rn]
+              | @tsv' "$totals" |
+            while IFS=$'\t' read -r c a b d e f g; do line "$c" "$a" "$b" "$d" "$e" "$f" "$g"; done
+            jq -r '.data[0].totals | ["total", .lines.covered, .lines.count, .functions.covered, .functions.count, .regions.covered, .regions.count] | @tsv' "$totals" |
+            while IFS=$'\t' read -r c a b d e f g; do line "$c" "$a" "$b" "$d" "$e" "$f" "$g"; done
+            echo
+            echo "files with the most uncovered lines"
+            jq -r '.data[0].files
+              | map(select(.summary.lines.count > .summary.lines.covered))
+              | sort_by(.summary.lines.covered - .summary.lines.count)
+              | .[:12][]
+              | [(.filename | sub(".*/crates/"; "")), .summary.lines.covered, .summary.lines.count, .summary.lines.percent]
+              | @tsv' "$totals" |
+            while IFS=$'\t' read -r f a b p; do printf '  %-36s %13s %5.1f%%\n' "$f" "$a/$b" "$p"; done
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
@@ -166,17 +189,31 @@ jobs:
       - name: cargo audit
         run: |
           status=0
-          {
-            echo "## RustSec advisories"
-            echo
-            echo "| lockfile | crates | vulnerabilities | warnings |"
-            echo "| --- | --- | --- | --- |"
-          } >> "$GITHUB_STEP_SUMMARY"
+          rows=""
+          found=""
           for lock in Cargo.lock fuzz/Cargo.lock; do
             nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit --deny warnings --file "$lock" || status=1
             nix shell --inputs-from . nixpkgs#cargo nixpkgs#cargo-audit -c cargo audit --json --file "$lock" > audit.json || true
-            jq -r --arg lock "$lock" '"| `\($lock)` | \(.lockfile["dependency-count"]) | \(.vulnerabilities.count) | \([.warnings[]? | length] | add // 0) |"' audit.json >> "$GITHUB_STEP_SUMMARY"
+            db=$(jq -r '.database | "\(.["advisory-count"]) advisories, commit \(.["last-commit"]), updated \(.["last-updated"])"' audit.json)
+            rows+=$(jq -r --arg lock "$lock" '[$lock, .lockfile["dependency-count"], .vulnerabilities.count, ([.warnings[]? | length] | add // 0)] | @tsv' audit.json)$'\n'
+            found+=$(jq -r --arg lock "$lock" '
+              ((.vulnerabilities.list // [])[] | [$lock, "vulnerability", .advisory.id, "\(.package.name) \(.package.version)", .advisory.title]),
+              ((.warnings // {}) | to_entries[] | .key as $k | .value[] | [$lock, $k, (.advisory.id // "-"), "\(.package.name) \(.package.version)", (.advisory.title // "")])
+              | @tsv' audit.json)
+            [ -n "$found" ] && found+=$'\n'
           done
+          {
+            echo '```text'
+            printf '%-12s %s\n' database "$db"
+            echo
+            printf '%-16s %7s %16s %9s\n' lockfile crates vulnerabilities warnings
+            printf '%s' "$rows" | while IFS=$'\t' read -r l c v w; do printf '%-16s %7s %16s %9s\n' "$l" "$c" "$v" "$w"; done
+            if [ -n "$found" ]; then
+              echo
+              printf '%s' "$found" | while IFS=$'\t' read -r l k id p t; do printf '%-16s %-13s %-18s %-24s %s\n' "$l" "$k" "$id" "$p" "$t"; done
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
   fuzz:
@@ -212,17 +249,35 @@ jobs:
           mkdir -p "corpus/$TARGET"
           before=$(find "corpus/$TARGET" -type f | wc -l)
           set -o pipefail
-          nix develop ..#fuzz -c cargo fuzz run -s none "$TARGET" -- -max_total_time=180 -print_final_stats=1 2>&1 | tee fuzz.log
+          status=0
+          nix develop ..#fuzz -c cargo fuzz run -s none "$TARGET" -- -max_total_time=180 -print_final_stats=1 2>&1 | tee fuzz.log || status=$?
           after=$(find "corpus/$TARGET" -type f | wc -l)
-          final() { grep -o "stat::$1: *[0-9]*" fuzz.log | grep -o '[0-9]*$'; }
+          final() { grep -o "stat::$1: *[0-9.]*" fuzz.log | grep -o '[0-9.]*$' | tail -1; }
           last=$(grep -E '^#[0-9]+' fuzz.log | tail -1)
+          field() { echo "$last" | grep -o "$1: [0-9]*" | cut -d' ' -f2; }
+          row() { printf '%-16s %s\n' "$1" "$2"; }
           {
-            echo "## Fuzz \`$TARGET\`"
-            echo
-            echo "| runs | runs per second | coverage | features | corpus | peak memory |"
-            echo "| --- | --- | --- | --- | --- | --- |"
-            echo "| $(final number_of_executed_units) | $(final average_exec_per_sec) | $(echo "$last" | grep -o 'cov: [0-9]*' | cut -d' ' -f2) edges | $(echo "$last" | grep -o 'ft: [0-9]*' | cut -d' ' -f2) | $before → $after inputs | $(final peak_rss_mb) MiB |"
+            echo '```text'
+            row target "$TARGET"
+            row result "$(if [ "$status" -eq 0 ]; then echo "no crash"; else echo "FAIL, exit $status"; fi)"
+            row sanitizer "none, nixpkgs rustc has no address sanitizer runtime"
+            row time "$(grep -o 'Done [0-9]* runs in [0-9]* second' fuzz.log | awk '{print $5}') s"
+            row runs "$(final number_of_executed_units)"
+            row "runs per sec" "$(final average_exec_per_sec)"
+            row edges "$(field cov)"
+            row features "$(field ft)"
+            row corpus "$before -> $after inputs, $(du -sb "corpus/$TARGET" | cut -f1) bytes"
+            row "new inputs" "$(final new_units_added)"
+            row "peak memory" "$(final peak_rss_mb) MiB"
+            if [ "$status" -ne 0 ]; then
+              echo
+              echo "crash"
+              grep -m1 -E "panicked at|ERROR: libFuzzer" fuzz.log | sed 's/^/  /'
+              find "artifacts/$TARGET" -type f 2> /dev/null | sed 's/^/  /'
+            fi
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
