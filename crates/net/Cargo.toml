@@ -6,7 +6,6 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-futures-util.workspace = true
 httparse.workspace = true
 memchr.workspace = true
 reqwest.workspace = true
