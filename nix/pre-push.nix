@@ -84,7 +84,9 @@ pkgs.writeShellApplication {
       trees+=("$tree")
       start "flake-check-$short" nix flake check "git+file://$root?rev=$rev"
       start "outdated-$short" stella-lint outdated "$tree"
-      start "cargo-audit-$short" cargo audit --deny warnings --file "$tree/engine/Cargo.lock"
+      lock="$tree/engine/Cargo.lock"
+      [ -f "$lock" ] || lock="$tree/Cargo.lock"
+      start "cargo-audit-$short" cargo audit --deny warnings --file "$lock"
     done
 
     echo "pre-push: running ''${names[*]} in parallel on the pushed commits"
