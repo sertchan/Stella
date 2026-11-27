@@ -312,23 +312,38 @@ pub async fn run(
     let mut pages: Vec<String> = cases.iter().flat_map(|c| c.pages.iter().cloned()).collect();
     pages.sort_unstable();
     pages.dedup();
-    let base_browser = Browser::launch(
-        &launch(&opts, compositor.as_ref(), Vec::new()),
-        &work.join("base"),
-    )
-    .await?;
-    let mut base: FxHashMap<String, Vec<Snapshot>> = FxHashMap::default();
-    for page in &pages {
-        let mut runs = Vec::with_capacity(BASE_RUNS);
-        for _ in 0..BASE_RUNS {
-            runs.push(snapshot(&base_browser, page, &opts, None).await);
-        }
-        base.insert(page.clone(), runs);
-    }
-    base_browser.close().await;
-    let base = Arc::new(base);
+    let base_browser = Arc::new(
+        Browser::launch(
+            &launch(&opts, compositor.as_ref(), Vec::new()),
+            &work.join("base"),
+        )
+        .await?,
+    );
     let opts = Arc::new(opts);
     let sem = Arc::new(Semaphore::new(opts.par.max(1)));
+    let mut runs = tokio::task::JoinSet::new();
+    for page in pages {
+        for _ in 0..BASE_RUNS {
+            let permit = sem.clone().acquire_owned().await?;
+            wait_for_memory().await;
+            let (b, o, p) = (base_browser.clone(), opts.clone(), page.clone());
+            runs.spawn(async move {
+                let s = snapshot(&b, &p, &o, None).await;
+                drop(permit);
+                (p, s)
+            });
+        }
+    }
+    let mut base: FxHashMap<String, Vec<Snapshot>> = FxHashMap::default();
+    while let Some(done) = runs.join_next().await {
+        if let Ok((page, snap)) = done {
+            base.entry(page).or_default().push(snap);
+        }
+    }
+    if let Ok(b) = Arc::try_unwrap(base_browser) {
+        b.close().await;
+    }
+    let base = Arc::new(base);
     let mut set = tokio::task::JoinSet::new();
     for (n, case) in cases.into_iter().enumerate() {
         let permit = sem.clone().acquire_owned().await?;
