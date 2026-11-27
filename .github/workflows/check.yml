@@ -312,6 +312,13 @@ jobs:
             range="$BEFORE..$AFTER"
           fi
           nix run .#lint -- range "$range"
+      - name: check pull request title, which becomes the squash commit subject
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$TITLE" > "$RUNNER_TEMP/title"
+          nix run .#lint -- message "$RUNNER_TEMP/title"
 
   freshness:
     name: freshness
