@@ -1,12 +1,17 @@
 name: nix
-description: Install Nix and a build cache in the GitHub Actions cache
+description: Install Nix and optionally keep built store paths in the GitHub Actions cache
+inputs:
+  cache:
+    description: Keep built store paths in the GitHub Actions cache
+    default: "false"
 runs:
   using: composite
   steps:
     - uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877
       with:
         github_access_token: ${{ github.token }}
-    - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7
+    - if: inputs.cache == 'true'
+      uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7
       with:
         use-gha-cache: enabled
         use-flakehub: disabled

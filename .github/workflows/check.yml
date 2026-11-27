@@ -25,6 +25,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/nix
+        with:
+          cache: "true"
       - name: flake check
         run: nix flake check --print-build-logs --keep-going
       - name: build
@@ -203,6 +205,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/nix
+        with:
+          cache: "true"
       - name: build
         run: nix build --print-build-logs
       - name: sbom
