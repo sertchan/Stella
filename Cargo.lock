@@ -1809,6 +1809,7 @@ dependencies = [
  "stella-sources",
  "stella-testkit",
  "tokio",
+ "zip",
 ]
 
 [[package]]

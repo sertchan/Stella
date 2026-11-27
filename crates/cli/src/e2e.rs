@@ -222,8 +222,8 @@ fn get_fetches_through_the_client() {
     drop(rt);
 }
 
-fn seeded() -> State {
-    let st = State::new("store");
+fn seeded(name: &str) -> State {
+    let st = State::new(name);
     let mut rows = vec![
         hit("t1.shop.test", "sgtm", "PICK", "healthy ok, random 400"),
         hit("t2.shop.test", "sgtm", "PICK", "healthy ok, random 400"),
@@ -332,7 +332,7 @@ fn seeded() -> State {
 
 #[test]
 fn store_commands_read_and_update_the_database() {
-    let st = seeded();
+    let st = seeded("store");
     st.stella(&["stats"]);
     st.stella(&["stats", "--runs"]);
     st.stella(&["review"]);
@@ -545,4 +545,104 @@ fn crawl_score_and_breakage_run_with_a_real_browser() {
     st.stella(&["--input", &hosts, "breakage", "--dwell", "1"]);
     st.stella(&["breakage", "--picks", "--dwell", "1"]);
     drop(rt);
+}
+
+fn apk_with(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    use std::io::Write;
+    let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, data) in entries {
+        w.start_file(*name, zip::write::SimpleFileOptions::default())
+            .expect("zip entry");
+        w.write_all(data).expect("zip data");
+    }
+    w.finish().expect("zip finish").into_inner()
+}
+
+#[test]
+fn offline_campaign_and_local_tools_run() {
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    let dns = rt.block_on(Dns::start(local_zone())).expect("dns");
+    let resolver = dns.addr.to_string();
+    let st = seeded("campaign");
+    st.seed(vec![
+        Row::Origin {
+            host: s("a.shop.test"),
+            source: s("ct"),
+            detail: s("shop.test"),
+        },
+        Row::Origin {
+            host: s("b.shop.test"),
+            source: s("site"),
+            detail: s("shop.test"),
+        },
+    ]);
+    st.stella(&[
+        "campaign",
+        "--offline",
+        "--resolver",
+        &resolver,
+        "--recheck-days",
+        "0",
+    ]);
+    assert!(
+        st.count("SELECT count(*) FROM run") >= 1,
+        "{:?}",
+        st.rows("SELECT * FROM run")
+    );
+    assert!(st.count("SELECT count(*) FROM resolution WHERE host = 'a.shop.test'") >= 1);
+    st.stella(&["stats", "--runs", "--last", "3"]);
+    let twins = st.file(
+        "twins.txt",
+        &["eu.collect.shop.test\tcollect.shop.test", "w.wild.test"],
+    );
+    st.stella(&["--input", &twins, "twins", "--resolver", &resolver]);
+    st.stella(&["audit", "--no-sync"]);
+    let hosts = st.file("known.txt", &["listed.test", "x.listed.test", "free.test"]);
+    st.stella(&["--input", &hosts, "known", "check"]);
+    let mut addrs = Vec::new();
+    for (i, h) in ["t1.shop.test", "t2.shop.test", "t3.shop.test"]
+        .iter()
+        .enumerate()
+    {
+        addrs.push(Row::Addr {
+            addr: format!("127.0.0.{}", i + 2),
+            host: s(h),
+        });
+    }
+    st.seed(addrs);
+    st.stella(&[
+        "sweep",
+        "--min-picks",
+        "1",
+        "--min-share",
+        "0",
+        "--max-blocks",
+        "1",
+    ]);
+    let pkg_dir = st.dir.join("apk/com.vendor.app");
+    std::fs::create_dir_all(&pkg_dir).expect("apk dir");
+    let inner = apk_with(&[(
+        "classes.dex",
+        b"\x00https://telemetry.vendor.test/v1/events?app=1\x00https://cdn.vendor.test/img/logo.png\x00",
+    )]);
+    std::fs::write(
+        pkg_dir.join("com.vendor.app.pkg"),
+        apk_with(&[("base.apk", &inner), ("manifest.json", b"{}")]),
+    )
+    .expect("apk file");
+    st.stella(&["apk", "scan"]);
+    assert!(
+        st.count("SELECT count(*) FROM apk_url WHERE url LIKE '%telemetry.vendor.test%'") >= 1,
+        "{:?}",
+        st.rows("SELECT pkg, url FROM apk_url")
+    );
+    st.stella(&["apk", "filter"]);
+    st.stella(&["apk", "clean"]);
+    drop(rt);
+}
+
+#[test]
+fn every_command_definition_is_valid() {
+    use clap::CommandFactory;
+    Cli::command().debug_assert();
 }

@@ -25,6 +25,7 @@ tokio.workspace = true
 
 [dev-dependencies]
 stella-testkit.workspace = true
+zip.workspace = true
 
 [lints]
 workspace = true
