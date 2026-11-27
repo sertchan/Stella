@@ -506,3 +506,43 @@ fn offline_sources_read_files_lists_and_local_scripts() {
     assert!(srv.seen().iter().any(|s| s.path == "/app.js"));
     drop(rt);
 }
+
+#[test]
+fn crawl_score_and_breakage_run_with_a_real_browser() {
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    let page = "<html><head><title>Shop</title></head><body><h1>Shop</h1><script>fetch(\"/collect?uid=1234567890abcdef\", { method: \"POST\", body: \"x\" });</script></body></html>";
+    let srv = rt
+        .block_on(Http::plain(
+            Site::new()
+                .route("/", Reply::ok(page).header("Content-Type", "text/html"))
+                .fallback(Reply::new(204)),
+        ))
+        .expect("http");
+    let st = State::new("crawl");
+    let urls = st.file("urls.txt", &[&srv.url("/")]);
+    st.stella(&[
+        "--input",
+        &urls,
+        "crawl",
+        "--par",
+        "1",
+        "--dwell",
+        "2",
+        "--after",
+        "0",
+        "--no-consent",
+    ]);
+    let posts =
+        st.count("SELECT count(*) FROM request WHERE method = 'POST' AND url LIKE '%/collect%'");
+    assert!(
+        posts >= 1,
+        "{:?}",
+        st.rows("SELECT method, url FROM request")
+    );
+    st.stella(&["--input", &urls, "crawl", "--par", "1"]);
+    st.stella(&["score", "--review-at", "1"]);
+    let hosts = st.file("hosts.txt", &["nothing.unseen.test"]);
+    st.stella(&["--input", &hosts, "breakage", "--dwell", "1"]);
+    st.stella(&["breakage", "--picks", "--dwell", "1"]);
+    drop(rt);
+}
