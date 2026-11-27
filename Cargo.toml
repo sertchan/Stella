@@ -16,6 +16,7 @@ stella-probe = { path = "crates/probe", version = "0.1.0" }
 stella-sources = { path = "crates/sources", version = "0.1.0" }
 stella-apk = { path = "crates/apk", version = "0.1.0" }
 stella-crawl = { path = "crates/crawl", version = "0.1.0" }
+stella-testkit = { path = "crates/testkit", version = "0.1.0" }
 aho-corasick = "1"
 anyhow = "1"
 base64 = "0.23"
@@ -24,6 +25,7 @@ flate2 = "1"
 futures-util = "0.3"
 httparse = "1"
 memchr = "2"
+rcgen = { version = "0.14", default-features = false, features = ["ring"] }
 rayon = "1"
 regex = "1"
 reqwest = { version = "0.13", default-features = false, features = [

@@ -14,5 +14,8 @@ stella-net.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
 
+[dev-dependencies]
+stella-testkit.workspace = true
+
 [lints]
 workspace = true

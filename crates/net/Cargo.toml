@@ -17,5 +17,8 @@ tokio.workspace = true
 tokio-rustls.workspace = true
 x509-parser.workspace = true
 
+[dev-dependencies]
+stella-testkit.workspace = true
+
 [lints]
 workspace = true

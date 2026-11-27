@@ -10,5 +10,8 @@ rustc-hash.workspace = true
 stella-core.workspace = true
 tokio.workspace = true
 
+[dev-dependencies]
+stella-testkit.workspace = true
+
 [lints]
 workspace = true
