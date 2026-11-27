@@ -1,6 +1,10 @@
-{rust}:
+{
+  pkgs,
+  rust,
+}:
 rust.craneLib.cargoNextest (rust.measured
   // {
+    nativeBuildInputs = rust.measured.nativeBuildInputs ++ [pkgs.git];
     cargoArtifacts = rust.measuredDeps;
     cargoNextestExtraArgs = "--no-fail-fast --profile ci";
     doInstallCargoArtifacts = false;

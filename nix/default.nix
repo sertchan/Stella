@@ -10,7 +10,7 @@
   checks = import ./checks.nix {
     inherit pkgs rust lint;
     inherit (inputs) self;
-    tests = import ./tests.nix {inherit rust;};
+    tests = import ./tests.nix {inherit pkgs rust;};
   };
 in {
   packages.${system} = {
