@@ -8,6 +8,7 @@ pkgs.writeShellApplication {
     pkgs.git
     pkgs.gh
     pkgs.coreutils
+    pkgs.gnugrep
     pkgs.cargo
     pkgs.cargo-audit
     lint
@@ -20,6 +21,10 @@ pkgs.writeShellApplication {
     logs=$(mktemp -d)
     trap 'rm -rf "$logs"' EXIT
     zero=0000000000000000000000000000000000000000
+
+    if ! grep -qv " $zero " <<< "$refs"; then
+      exit 0
+    fi
 
     while read -r _ local remote_ref _; do
       if [ "$remote_ref" != refs/heads/main ] || [ -z "$local" ] || [ "$local" = "$zero" ]; then
