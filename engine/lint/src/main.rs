@@ -1,4 +1,5 @@
 mod commits;
+mod lists;
 mod outdated;
 mod report;
 mod source;
@@ -50,6 +51,13 @@ enum Cmd {
     PrePush {
         #[arg(default_value = "origin", help = "Remote that receives the push")]
         remote: String,
+    },
+    #[command(
+        about = "Check every published list for its header, entry count, rule syntax, duplicates and the same names in every format"
+    )]
+    Lists {
+        #[arg(default_value = "lists", help = "Directory with one folder per list")]
+        dir: PathBuf,
     },
     #[command(
         about = "Check that lock files, direct dependencies, flake inputs and CI actions are on their newest stable release"
@@ -134,6 +142,15 @@ fn run(cli: Cli) -> Result<bool> {
                     rules_section(&commits::RULES),
                     Section::new("new commit", staged),
                 ],
+                findings,
+            }
+        }
+        Cmd::Lists { dir } => {
+            let (sections, findings) = lists::check_dir(&dir)?;
+            Outcome {
+                tool: "list-lint",
+                checked: format!("the lists under {}", dir.display()),
+                sections,
                 findings,
             }
         }
