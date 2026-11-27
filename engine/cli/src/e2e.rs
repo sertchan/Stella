@@ -44,6 +44,17 @@ impl State {
         run(cli).unwrap_or_else(|e| panic!("{argv:?}: {e:#}"));
     }
 
+    fn fails(&self, args: &[&str]) -> String {
+        let state = self.dir.display().to_string();
+        let mut argv = vec!["stella", "--state", &state];
+        argv.extend_from_slice(args);
+        let cli = Cli::try_parse_from(&argv).expect("arguments");
+        match run(cli) {
+            Ok(()) => panic!("{argv:?} should fail"),
+            Err(e) => format!("{e:#}"),
+        }
+    }
+
     fn store(&self) -> Store {
         Store::open(&self.dir.join("stella.db")).expect("store")
     }
@@ -175,6 +186,24 @@ fn dns_commands_use_the_given_resolver() {
     assert_eq!(st.count("SELECT count(*) FROM probe"), 0);
     let zones = st.file("zones.txt", &["shop.test"]);
     st.stella(&["--input", &zones, "zone", "--resolver", &resolver]);
+    let lists = st.dir.join("lists");
+    std::fs::create_dir_all(lists.join("tracker")).expect("lists dir");
+    std::fs::write(
+        lists.join("tracker/domains.txt"),
+        "# Title: t\n#\na.shop.test\ngone.shop.test\n",
+    )
+    .expect("list");
+    let dir = lists.display().to_string();
+    let err = st.fails(&["lists", "check", "--dir", &dir, "--resolver", &resolver]);
+    assert!(err.contains("1 dead entr(ies)"), "{err}");
+    std::fs::write(
+        lists.join("tracker/domains.txt"),
+        "# Title: t\na.shop.test\n",
+    )
+    .expect("list");
+    st.stella(&["lists", "check", "--dir", &dir, "--resolver", &resolver]);
+    let empty = st.dir.join("empty").display().to_string();
+    st.stella(&["lists", "check", "--dir", &empty]);
     st.stella(&["--input", &hosts, "geo", "--resolver", &resolver]);
     st.seed(vec![hit("a.shop.test", "sgtm", "PICK", "healthy ok")]);
     st.stella(&["records", "--picks", "--no-zones", "--resolver", &resolver]);
@@ -344,8 +373,8 @@ fn store_commands_read_and_update_the_database() {
             .expect("meta")
             .contains("t1.shop.test")
     );
-    for f in ["hosts", "adblock", "rpz"] {
-        st.stella(&["export", "--format", f, "--zones", "2", "--with-known"]);
+    for f in ["wildcard", "hosts", "adblock", "rpz", "dnsmasq"] {
+        st.stella(&["export", "--format", f, "--zones", "2", "--unknown-only"]);
     }
     st.stella(&["export", "--unfiled"]);
     let out = st.dir.join("pub").display().to_string();
@@ -361,9 +390,21 @@ fn store_commands_read_and_update_the_database() {
             assert!(text.contains(list.title()), "{}", p.display());
         }
     }
+    let log = std::fs::read_to_string(st.dir.join("pub/changelog.tsv")).expect("changelog");
+    assert!(
+        log.starts_with("time\taction\tentry\tlist\tsublist\treason\n"),
+        "{log}"
+    );
+    assert!(log.contains("\tadded\t"), "{log}");
+    st.stella(&["publish", "--dir", &out]);
+    let again = std::fs::read_to_string(st.dir.join("pub/changelog.tsv")).expect("changelog");
+    assert_eq!(
+        again, log,
+        "a second publish with the same picks logs nothing"
+    );
     let counts = std::fs::read_to_string(st.dir.join("pub/counts.tsv")).expect("counts");
     assert!(
-        counts.starts_with("list\tzones\thosts\tentries\nads\t"),
+        counts.starts_with("list\tsublist\tentries\nads\t-\t"),
         "{counts}"
     );
     st.stella(&["export", "--category", "tracker", "--format", "rpz"]);
@@ -699,6 +740,11 @@ const MIRRORED: &[&str] = &[
     "www.googletagmanager.com",
 ];
 
+const HAGEZI_ISSUES: &str = r#"[
+    {"number": 12398, "title": "Collectors", "created_at": "2026-11-16T10:00:00Z", "state": "closed", "state_reason": "completed", "labels": [{"name": "deny"}], "updated_at": "2026-11-16T10:00:00Z", "body": "\u0023\u0023\u0023 Which category do the domain(s) to be blocked belong to?\nTracking\n\u0023\u0023\u0023 Which domain(s) should be blocked?\n```yaml\n\u0023 Snowplow collectors\ni.shop.test\n```"},
+    {"number": 12452, "title": "False positive: app.shop.test", "created_at": "2026-11-19T10:00:00Z", "state": "closed", "state_reason": "completed", "labels": [{"name": "allow"}], "updated_at": "2026-11-19T10:00:00Z", "body": "\u0023\u0023\u0023 Which domain(s) need to be unblocked?\n```yaml\napp.shop.test\n```"}
+]"#;
+
 fn mirror() -> Site {
     let list = "listed.test\nx.tracker.listed.test\n";
     let gvl = r#"{"vendors":{"1":{"name":"Vendor","deviceStorageDisclosureUrl":"https://disclosures.vendor.test/d.json"}}}"#;
@@ -713,7 +759,7 @@ fn mirror() -> Site {
             "/list/public_suffix_list.dat",
             Reply::ok("// ===BEGIN ICANN DOMAINS===\ntest\nco.test\n"),
         )
-        .route("/repos/hagezi/dns-blocklists/issues", Reply::ok("[]"))
+        .route("/repos/hagezi/dns-blocklists/issues", Reply::ok(HAGEZI_ISSUES))
         .route(
             "/",
             Reply::ok("[\"a.shop.test\",\"b.shop.test\",\"x.other.test\"]")
@@ -837,6 +883,16 @@ fn remote_sources_run_against_a_local_mirror() {
         id: s("GTM-ABC123"),
     }]);
     run(&["source", "container"]);
+    run(&["source", "hagezi", "--author", "sertchan"]);
+    assert_eq!(
+        st.rows("SELECT detail FROM origin WHERE source = 'hagezi-issue'"),
+        [[s("#12398 reported 2026-11-16: Snowplow collectors")]]
+    );
+    assert!(
+        st.count(
+            "SELECT count(*) FROM allow WHERE host = 'app.shop.test' AND reason LIKE '%#12452%'"
+        ) == 1
+    );
     let seen: Vec<String> = srv.seen().into_iter().map(|s| s.path).collect();
     for path in [
         "/list/public_suffix_list.dat",

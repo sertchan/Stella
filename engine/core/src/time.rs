@@ -29,6 +29,32 @@ pub fn utc(unix: i64) -> String {
     )
 }
 
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+pub fn list_modified(unix: i64) -> String {
+    let (y, m, d) = civil(unix.div_euclid(SECONDS_PER_DAY));
+    let secs = unix.rem_euclid(SECONDS_PER_DAY);
+    format!(
+        "{d} {} {y} {:02}:{:02} UTC",
+        MONTHS[(m - 1) as usize],
+        secs / 3600,
+        secs % 3600 / 60
+    )
+}
+
+pub fn list_version(unix: i64) -> String {
+    let (y, m, d) = civil(unix.div_euclid(SECONDS_PER_DAY));
+    let secs = unix.rem_euclid(SECONDS_PER_DAY);
+    format!(
+        "{y}.{m:02}{d:02}.{:02}{:02}.{:02}",
+        secs / 3600,
+        secs % 3600 / 60,
+        secs % 60
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -41,5 +67,8 @@ mod tests {
         assert_eq!(date(-1), "1969-12-31");
         assert_eq!(utc(1_795_234_589), "2026-11-21T04:16:29Z");
         assert_eq!(utc(0), "1970-01-01T00:00:00Z");
+        assert_eq!(list_modified(1_795_234_589), "21 Nov 2026 04:16 UTC");
+        assert_eq!(list_version(1_795_234_589), "2026.1121.0416.29");
+        assert_eq!(list_modified(0), "1 Jan 1970 00:00 UTC");
     }
 }

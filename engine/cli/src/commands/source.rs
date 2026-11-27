@@ -165,6 +165,13 @@ enum Cmd {
     )]
     HttpArchive,
     #[command(
+        about = "Hosts from the HaGeZi issues of one author: granted block requests become origins with the issue and its group note, granted false positives become allow entries"
+    )]
+    Hagezi {
+        #[arg(long, help = "GitHub login whose HaGeZi issues are read")]
+        author: String,
+    },
+    #[command(
         about = "Domains registered on one day, for records and mates to match against pick zones"
     )]
     Nrd {
@@ -503,6 +510,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
         Cmd::Cmp { par } => feeds::cmp(ctx, par).await?,
         Cmd::Scripts { par } => feeds::scripts(ctx, par).await?,
         Cmd::Extract => feeds::extract(ctx).await?,
+        Cmd::Hagezi { author } => feeds::hagezi(ctx, &author).await?,
         Cmd::Nrd { date } => feeds::nrd(ctx, date).await?,
         Cmd::HttpArchive => feeds::http_archive(ctx).await?,
         Cmd::SdkIndex { limit } => feeds::sdk_index(ctx, limit).await?,

@@ -6,19 +6,18 @@ pub enum Category {
     SelfHostedTelemetry,
 }
 
-const SELF_HOSTED_PRODUCTS: &[&str] = &[
-    "matomo",
-    "piwik",
-    "plausible",
-    "umami",
-    "fathom",
-    "posthog",
-    "jitsu",
-    "rudderstack",
-    "snowplow",
-];
+const SELF_HOSTED_PRODUCTS: &[&str] =
+    &["matomo", "piwik", "plausible", "umami", "fathom", "posthog"];
 
-const TRACKER_PRODUCTS: &[&str] = &["sgtm", "segment-proxy", "mixpanel-proxy", "adobe-fp"];
+const TRACKER_PRODUCTS: &[&str] = &[
+    "sgtm",
+    "segment-proxy",
+    "mixpanel-proxy",
+    "adobe-fp",
+    "snowplow",
+    "rudderstack",
+    "jitsu",
+];
 
 const TELEMETRY_PRODUCTS: &[&str] = &["apk-endpoint"];
 
@@ -33,6 +32,48 @@ const AD_SOURCE_PREFIXES: &[&str] = &[
 ];
 
 const TELEMETRY_SOURCE_PREFIXES: &[&str] = &["apk", "sdk", "extension"];
+
+const PRODUCT_SUBLISTS: &[(&str, &str)] = &[
+    ("matomo", "matomo"),
+    ("piwik", "matomo"),
+    ("plausible", "plausible"),
+    ("umami", "umami"),
+    ("fathom", "fathom"),
+    ("posthog", "posthog"),
+    ("jitsu", "jitsu"),
+    ("rudderstack", "rudderstack"),
+    ("snowplow", "snowplow"),
+    ("sgtm", "server-side-gtm"),
+    ("segment-proxy", "segment"),
+    ("mixpanel-proxy", "mixpanel"),
+    ("adobe-fp", "adobe"),
+];
+
+pub const OTHER: &str = "other";
+pub const MIN_COMPANY_ENTRIES: usize = 3;
+
+pub fn product_sublist<'a>(products: impl IntoIterator<Item = &'a str>) -> Option<&'static str> {
+    let products: Vec<&str> = products.into_iter().collect();
+    PRODUCT_SUBLISTS
+        .iter()
+        .find(|(p, _)| products.contains(p))
+        .map(|(_, s)| *s)
+}
+
+pub fn company(regdom: &str) -> String {
+    let label = regdom.split('.').next().unwrap_or("");
+    let slug: String = label
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect::<String>()
+        .to_ascii_lowercase();
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() || slug == OTHER {
+        OTHER.to_string()
+    } else {
+        slug.to_string()
+    }
+}
 
 fn starts_with_any(source: &str, prefixes: &[&str]) -> bool {
     prefixes.iter().any(|p| source.starts_with(p))
@@ -79,6 +120,18 @@ impl Category {
                 "Self-hosted analytics instances such as Matomo, Plausible, Umami and PostHog on first-party domains"
             }
         }
+    }
+
+    pub fn sublist_title(self, sublist: &str) -> String {
+        format!("{}: {sublist}", self.title())
+    }
+
+    pub fn sublist_description(self, sublist: &str) -> String {
+        format!(
+            "The {sublist} part of {}. {}",
+            self.title(),
+            self.description()
+        )
     }
 
     pub fn from_slug(slug: &str) -> Option<Self> {
@@ -139,7 +192,30 @@ mod tests {
     }
 
     #[test]
+    fn names_sublists_by_product_or_company() {
+        assert_eq!(product_sublist(["collector", "umami"]), Some("umami"));
+        assert_eq!(product_sublist(["piwik"]), Some("matomo"));
+        assert_eq!(product_sublist(["sgtm"]), Some("server-side-gtm"));
+        assert_eq!(product_sublist(["collector"]), None);
+        assert_eq!(company("pubmatic.com"), "pubmatic");
+        assert_eq!(company("1800flowers.com"), "1800flowers");
+        assert_eq!(company("-.io"), OTHER);
+        assert_eq!(company("other.net"), OTHER);
+        assert_eq!(
+            Category::SelfHostedTelemetry.sublist_title("umami"),
+            "Stella Self-Hosted Telemetry: umami"
+        );
+        assert!(
+            Category::Ads
+                .sublist_description("pubmatic")
+                .starts_with("The pubmatic part of Stella Ads. Ad serving")
+        );
+    }
+
+    #[test]
     fn products_decide_first() {
+        assert_eq!(Category::classify(["snowplow"], []), Category::Tracker);
+        assert_eq!(Category::classify(["rudderstack"], []), Category::Tracker);
         assert_eq!(
             Category::classify(["umami"], ["adtech"]),
             Category::SelfHostedTelemetry

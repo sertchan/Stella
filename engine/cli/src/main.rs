@@ -9,8 +9,8 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
     allow, apk, audit, breakage, campaign, clusters, crawl, export, fuse, geo, get, hunt, known,
-    mates, pivot, probe, publish, recheck, records, resolve, review, source, stats, sweep, twins,
-    zone,
+    lists, mates, pivot, probe, publish, recheck, records, resolve, review, source, stats, sweep,
+    twins, zone,
 };
 use stella_core::config::Paths;
 
@@ -120,6 +120,8 @@ enum Cmd {
         about = "Write the ads, tracker, telemetry and self-hosted telemetry lists in every format with metadata and counts"
     )]
     Publish(publish::PublishArgs),
+    #[command(about = "Checks on the published lists, such as dead entries")]
+    Lists(lists::Args),
 }
 
 fn main() -> Result<()> {
@@ -172,6 +174,7 @@ fn run(cli: Cli) -> Result<()> {
             Cmd::Review(a) => review::run(&ctx, &a),
             Cmd::Export(a) => export::run(&ctx, &a),
             Cmd::Publish(a) => publish::run(&ctx, &a),
+            Cmd::Lists(a) => lists::run(&mut ctx, a).await,
         }
     })
 }

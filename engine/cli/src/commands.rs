@@ -12,6 +12,7 @@ pub mod geo;
 pub mod get;
 pub mod hunt;
 pub mod known;
+pub mod lists;
 pub mod mates;
 pub mod pivot;
 pub mod probe;

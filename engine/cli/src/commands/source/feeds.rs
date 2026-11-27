@@ -948,3 +948,76 @@ pub async fn nrd(ctx: &mut Context, date: Option<String>) -> Result<()> {
     );
     Ok(())
 }
+
+pub const HAGEZI_ISSUE: &str = "hagezi-issue";
+
+pub async fn hagezi(ctx: &mut Context, author: &str) -> Result<()> {
+    use stella_sources::audit::{self as hagezi_issues, GRANTED};
+    let started = Instant::now();
+    let tok = crate::commands::audit::token();
+    ctx.store
+        .conn
+        .execute("DELETE FROM origin WHERE source = ?1", [HAGEZI_ISSUE])?;
+    let c = web(30)?;
+    let w = ctx.store.writer()?;
+    let mut out = Out::new();
+    let (mut issues, mut origins, mut allowed, mut ignored) = (0usize, 0usize, 0usize, 0usize);
+    for page in 1.. {
+        let body = hagezi_issues::github_get(
+            &c,
+            &hagezi_issues::authored_issues_url(author, page),
+            tok.as_deref(),
+        )
+        .await?;
+        let raw = hagezi_issues::page_len(&body);
+        for issue in hagezi_issues::parse_authored(&body)? {
+            issues += 1;
+            for e in &issue.entries {
+                let note = if e.note.is_empty() {
+                    issue.title.as_str()
+                } else {
+                    e.note.as_str()
+                };
+                let number = format!("#{}", issue.number);
+                let reported = if issue.created.is_empty() {
+                    String::new()
+                } else {
+                    format!(" reported {}", issue.created)
+                };
+                match (issue.kind, issue.outcome) {
+                    ("deny", GRANTED) => {
+                        origins += 1;
+                        out.row(&[&e.host, "origin", &number, note]);
+                        w.send(Row::Origin {
+                            host: e.host.clone(),
+                            source: HAGEZI_ISSUE.into(),
+                            detail: format!("{number}{reported}: {note}"),
+                        });
+                    }
+                    ("allow", GRANTED) => {
+                        allowed += 1;
+                        out.row(&[&e.host, "allow", &number, &issue.title]);
+                        w.send(Row::Allow {
+                            host: e.host.clone(),
+                            reason: format!(
+                                "false positive reported in HaGeZi issue {number}: {}",
+                                issue.title
+                            ),
+                        });
+                    }
+                    _ => ignored += 1,
+                }
+            }
+        }
+        if hagezi_issues::last_page(raw) {
+            break;
+        }
+    }
+    drop(out);
+    w.finish()?;
+    eprintln!(
+        "hagezi: author={author} issues={issues} origins={origins} allowed={allowed} ignored={ignored} secs={:.2}",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
