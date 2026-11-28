@@ -118,7 +118,15 @@ jobs:
           set -e
           echo "::endgroup::"
           secs=$(awk -v s="$begin" -v e="$(date +%s%N)" 'BEGIN { printf "%.2f", (e - s) / 1e9 }')
-          sed -n "s/^$pname> //p" "$log" > "$own"
+          sed -n "s/^$pname> //p" "$log" |
+            sed -E \
+              -e '/^Running phase: /d' \
+              -e '/^(unpacking source archive|source root is|Executing configureCargo|decompressing cargo artifacts|will append .*config\.toml|default [a-zA-Z]+Phase, nothing to do|cargoArtifacts not set|shrinking RPATHs|shrinking \/nix\/store|checking for references to \/build\/|patching script interpreter paths|stripping \(with command|[a-zA-Z]+Phase completed in )/d' \
+              -e 's/^\++ command /$ /' \
+              -e 's|/nix/store/[a-z0-9]{32}-|/nix/store/…-|g' \
+              -e 's/^ +(Compiling|Checking|Finished|Fresh|Running|Doc-tests|Documenting|Locking|Updating|Downloaded|Downloading|Adding|Blocking|Packaging|Verifying|Archiving|Installing|Replacing|Removing) /\1 /' \
+              -e 's/ in ([0-9]+\.[0-9]+)s$/ in \1 s/' |
+            cat -s > "$own"
           built=$(grep -c "^building '" "$log" || true)
           fetched=$(grep -c "^copying path" "$log" || true)
           {
@@ -163,19 +171,19 @@ jobs:
           cell() { awk -v a="$1" -v b="$2" 'BEGIN { if (b == 0) printf "%13s %6s", "-", "-"; else printf "%13s %5.1f%%", a "/" b, a * 100 / b }'; }
           line() { printf '  %-10s %s  %s  %s\n' "$1" "$(cell "$2" "$3")" "$(cell "$4" "$5")" "$(cell "$6" "$7")"; }
           {
-            printf '%-9s%s\n' tests "$(attr tests) run, $(attr failures) failed, $(attr skipped) skipped in $(attr time) s"
+            printf '%-9s%s\n' tests "$(attr tests) run, $(attr failures) failed, $(attr skipped) skipped in $(printf '%.2f' "$(attr time)") s"
             echo
             echo "tests per binary"
             grep -o '<testsuite [^>]*>' "$junit" |
-              sed -E 's/.* name="([^"]*)".* tests="([^"]*)".* failures="([^"]*)".*/\2 \3 \1/' |
+              sed -E -e 's/.* name="([^"]*)".* tests="([^"]*)".* failures="([^"]*)".*/\2 \3 \1/' -e 's|([a-z0-9_-]+)::bin/\1$|\1|' |
               sort -k3 |
-              while read -r n f s; do printf '  %-28s %4s tests  %s failed\n' "$s" "$n" "$f"; done
+              while read -r n f s; do printf '  %-24s %4s tests  %s failed\n' "$s" "$n" "$f"; done
             echo
             echo "slowest tests"
             grep -o '<testcase [^>]*>' "$junit" |
-              sed -E 's/.* name="([^"]*)" classname="([^"]*)".* time="([^"]*)".*/\3 \2 \1/' |
+              sed -E -e 's/.* name="([^"]*)" classname="([^"]*)".* time="([^"]*)".*/\3 \2 \1/' -e 's|^([0-9.]+) ([a-z0-9_-]+)::bin/\2 |\1 \2 |' |
               sort -rn | head -8 |
-              while read -r t c n; do printf '  %8s s  %-24s %s\n' "$t" "$c" "$n"; done
+              while read -r t c n; do printf '  %6.2f s  %-22s %s\n' "$t" "$c" "$n"; done
             echo
             echo "coverage per crate"
             printf '  %-10s %20s  %20s  %20s\n' crate lines functions regions
@@ -202,9 +210,9 @@ jobs:
               | map(select(.summary.lines.count > .summary.lines.covered))
               | sort_by(.summary.lines.covered - .summary.lines.count)
               | .[:12][]
-              | [(.filename | capture("(?<p>[^/]+/(src|tests)/.*)$").p), .summary.lines.covered, .summary.lines.count, .summary.lines.percent]
+              | [(.filename | capture("(?<p>[^/]+/(src|tests)/.*)$").p), (.summary.lines.count - .summary.lines.covered), .summary.lines.covered, .summary.lines.count, .summary.lines.percent]
               | @tsv' "$totals" |
-            while IFS=$'\t' read -r f a b p; do printf '  %-36s %13s %5.1f%%\n' "$f" "$a/$b" "$p"; done
+            while IFS=$'\t' read -r f u a b p; do printf '  %-34s %4s uncovered  %9s %5.1f%%\n' "$f" "$u" "$a/$b" "$p"; done
           } > "$report"
           cat "$report"
           { echo '```text'; cat "$report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
