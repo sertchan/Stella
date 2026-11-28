@@ -1,0 +1,29 @@
+# Title: Stella Tracker Aggressive: segment
+# Description: The segment part of Stella Tracker Aggressive. Tracking, tag manager and collector hosts found by active discovery and confirmed by how they answer. For HaGeZi Pro++ and Ultimate only
+# Homepage: https://github.com/sertchan/Stella
+# License: https://github.com/sertchan/Stella/blob/main/LICENSE
+# Issues: https://github.com/sertchan/Stella/issues
+# Expires: 1 day
+# Last modified: 28 Nov 2026 11:43 UTC
+# Version: 2026.1128.1143.04
+# Syntax: Domains (without subdomains)
+# Number of entries: 18
+#
+analytics.silver-fir.vmware.com
+cdn-proxy-api.cafeyn.co
+cdn.segment.synthesia.io
+cdn.segment.tcgplayer.com
+evs.cbp.vividseats.com
+evs.cdp.silencershop.com
+evs.cdp.stockx.com
+evs.events.rocketmoney.com
+evs.prod-cdp.rula.com
+evs.segment.weedmaps.com
+evs.tr.sezane.com
+heartbeatcdn.willhaben.at
+sc.todaytix.com
+segment-cdn.seniorhousingnet.com
+segment-cdn.united.vividseats.com
+segment.indigo.ca
+sgprox.xgritapi.com
+stats-api.surfly.com

@@ -1,0 +1,13 @@
+# Title: Stella Tracker Aggressive: rudderstack
+# Description: The rudderstack part of Stella Tracker Aggressive. Tracking, tag manager and collector hosts found by active discovery and confirmed by how they answer. For HaGeZi Pro++ and Ultimate only
+# Homepage: https://github.com/sertchan/Stella
+# License: https://github.com/sertchan/Stella/blob/main/LICENSE
+# Issues: https://github.com/sertchan/Stella/issues
+# Expires: 1 day
+# Last modified: 28 Nov 2026 11:43 UTC
+# Version: 2026.1128.1143.04
+# Syntax: Domains (without subdomains)
+# Number of entries: 2
+#
+analytics-v2.revsure.cloud
+analytics.revsure-eu.cloud

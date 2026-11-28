@@ -1,0 +1,11 @@
+# Title: Stella Ads
+# Description: Ad serving, ad exchange and header bidding hosts found by active discovery and confirmed by how they answer. For every HaGeZi list from Light to Ultimate
+# Homepage: https://github.com/sertchan/Stella
+# License: https://github.com/sertchan/Stella/blob/main/LICENSE
+# Issues: https://github.com/sertchan/Stella/issues
+# Expires: 1 day
+# Last modified: 28 Nov 2026 11:43 UTC
+# Version: 2026.1128.1143.04
+# Syntax: Domains (without subdomains)
+# Number of entries: 0
+#

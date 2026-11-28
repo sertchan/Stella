@@ -1,0 +1,41 @@
+# Title: Stella Tracker Aggressive: snowplow
+# Description: The snowplow part of Stella Tracker Aggressive. Tracking, tag manager and collector hosts found by active discovery and confirmed by how they answer. For HaGeZi Pro++ and Ultimate only
+# Homepage: https://github.com/sertchan/Stella
+# License: https://github.com/sertchan/Stella/blob/main/LICENSE
+# Issues: https://github.com/sertchan/Stella/issues
+# Expires: 1 day
+# Last modified: 28 Nov 2026 11:43 UTC
+# Version: 2026.1128.1143.04
+# Syntax: Domains (without subdomains)
+# Number of entries: 30
+#
+aura.yelp.com
+bdp.ruhr24.de
+drive-v2.ruhrnachrichten.de
+drive-v2.schwarzwaelder-bote.de
+drive-v2.stuttgarter-zeitung.de
+drive-v2.swp.de
+drive-v2.volksfreund.de
+drive-v2.westfalen-blatt.de
+drive-v2.wn.de
+drive-v2.zvw.de
+dwh-prod.stuttgarter-zeitung.de
+dwh-prod.swp.de
+epaper-prod.funkedigital.de
+i.rugiet.com
+i.sharkninja.com
+i.smooche.com
+i.stanley1913.com
+i.theloadedteashop.com
+i.theuzzle.com
+i.thrivemarket.com
+i.thursdayboots.com
+i.tnuck.com
+i.wearpact.com
+i2.wyze.com
+mobile-sp.tradingview.com
+northbeam.theepochtimes.com
+snowplow.templeandwebster.com.au
+snp.liv.eu.bp.aws.cloud.vwgroup.com
+sp.whattoexpect.com
+wdty.shz.de
