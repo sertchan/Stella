@@ -723,6 +723,7 @@ const MIRRORED: &[&str] = &[
     "raw.githubusercontent.com",
     "publicsuffix.org",
     "api.github.com",
+    "github.com",
     "adguardteam.github.io",
     "filters.adtidy.org",
     "easylist.to",
@@ -741,7 +742,7 @@ const MIRRORED: &[&str] = &[
 ];
 
 const HAGEZI_ISSUES: &str = r#"[
-    {"number": 12398, "title": "Collectors", "created_at": "2026-11-16T10:00:00Z", "state": "closed", "state_reason": "completed", "labels": [{"name": "deny"}], "updated_at": "2026-11-16T10:00:00Z", "body": "\u0023\u0023\u0023 Which category do the domain(s) to be blocked belong to?\nTracking\n\u0023\u0023\u0023 Which domain(s) should be blocked?\n```yaml\n\u0023 Snowplow collectors\ni.shop.test\n```"},
+    {"number": 12398, "title": "Collectors", "created_at": "2026-11-16T10:00:00Z", "state": "closed", "state_reason": "completed", "labels": [{"name": "deny"}], "updated_at": "2026-11-16T10:00:00Z", "body": "\u0023\u0023\u0023 Which category do the domain(s) to be blocked belong to?\nTracking\n\u0023\u0023\u0023 Which domain(s) should be blocked?\n```yaml\n\u0023 Snowplow collectors\ni.shop.test\n```\nMore in https://github.com/user-attachments/files/7/extra.txt"},
     {"number": 12452, "title": "False positive: app.shop.test", "created_at": "2026-11-19T10:00:00Z", "state": "closed", "state_reason": "completed", "labels": [{"name": "allow"}], "updated_at": "2026-11-19T10:00:00Z", "body": "\u0023\u0023\u0023 Which domain(s) need to be unblocked?\n```yaml\napp.shop.test\n```"}
 ]"#;
 
@@ -760,6 +761,10 @@ fn mirror() -> Site {
             Reply::ok("// ===BEGIN ICANN DOMAINS===\ntest\nco.test\n"),
         )
         .route("/repos/hagezi/dns-blocklists/issues", Reply::ok(HAGEZI_ISSUES))
+        .route(
+            "/user-attachments/files/7/extra.txt",
+            Reply::ok("\u{23} attached sGTM hosts\nsst.shop.test\n"),
+        )
         .route(
             "/",
             Reply::ok("[\"a.shop.test\",\"b.shop.test\",\"x.other.test\"]")
@@ -885,8 +890,13 @@ fn remote_sources_run_against_a_local_mirror() {
     run(&["source", "container"]);
     run(&["source", "hagezi", "--author", "sertchan"]);
     assert_eq!(
-        st.rows("SELECT detail FROM origin WHERE source = 'hagezi-issue'"),
-        [[s("#12398 reported 2026-11-16: Snowplow collectors")]]
+        st.rows("SELECT detail FROM origin WHERE source = 'hagezi-issue' ORDER BY detail"),
+        [
+            [s(
+                "#12398 reported 2026-11-16 attachment extra.txt: attached sGTM hosts"
+            )],
+            [s("#12398 reported 2026-11-16: Snowplow collectors")]
+        ]
     );
     assert!(
         st.count(

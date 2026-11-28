@@ -950,6 +950,7 @@ pub async fn nrd(ctx: &mut Context, date: Option<String>) -> Result<()> {
 }
 
 pub const HAGEZI_ISSUE: &str = "hagezi-issue";
+pub const HAGEZI_ATTACHMENT_CAP: usize = 8 * 1024 * 1024;
 
 pub async fn hagezi(ctx: &mut Context, author: &str) -> Result<()> {
     use stella_sources::audit::{self as hagezi_issues, GRANTED};
@@ -961,7 +962,8 @@ pub async fn hagezi(ctx: &mut Context, author: &str) -> Result<()> {
     let c = web(30)?;
     let w = ctx.store.writer()?;
     let mut out = Out::new();
-    let (mut issues, mut origins, mut allowed, mut ignored) = (0usize, 0usize, 0usize, 0usize);
+    let (mut issues, mut origins, mut allowed, mut ignored, mut attached) =
+        (0usize, 0usize, 0usize, 0usize, 0usize);
     for page in 1.. {
         let body = hagezi_issues::github_get(
             &c,
@@ -972,7 +974,24 @@ pub async fn hagezi(ctx: &mut Context, author: &str) -> Result<()> {
         let raw = hagezi_issues::page_len(&body);
         for issue in hagezi_issues::parse_authored(&body)? {
             issues += 1;
-            for e in &issue.entries {
+            let mut found: Vec<(hagezi_issues::IssueEntry, String)> = issue
+                .entries
+                .iter()
+                .map(|e| (e.clone(), String::new()))
+                .collect();
+            for url in &issue.attachments {
+                match client::fetch(&c, url, HAGEZI_ATTACHMENT_CAP).await {
+                    Ok(p) => {
+                        let name = hagezi_issues::attachment_name(url);
+                        let text = String::from_utf8_lossy(&p.body);
+                        let list = hagezi_issues::attachment_entries(&text);
+                        attached += list.len();
+                        found.extend(list.into_iter().map(|e| (e, format!(" attachment {name}"))));
+                    }
+                    Err(e) => eprintln!("hagezi: #{} attachment {url}: {e}", issue.number),
+                }
+            }
+            for (e, from) in &found {
                 let note = if e.note.is_empty() {
                     issue.title.as_str()
                 } else {
@@ -991,7 +1010,7 @@ pub async fn hagezi(ctx: &mut Context, author: &str) -> Result<()> {
                         w.send(Row::Origin {
                             host: e.host.clone(),
                             source: HAGEZI_ISSUE.into(),
-                            detail: format!("{number}{reported}: {note}"),
+                            detail: format!("{number}{reported}{from}: {note}"),
                         });
                     }
                     ("allow", GRANTED) => {
@@ -1000,7 +1019,7 @@ pub async fn hagezi(ctx: &mut Context, author: &str) -> Result<()> {
                         w.send(Row::Allow {
                             host: e.host.clone(),
                             reason: format!(
-                                "false positive reported in HaGeZi issue {number}: {}",
+                                "false positive reported in HaGeZi issue {number}{from}: {}",
                                 issue.title
                             ),
                         });
@@ -1016,7 +1035,7 @@ pub async fn hagezi(ctx: &mut Context, author: &str) -> Result<()> {
     drop(out);
     w.finish()?;
     eprintln!(
-        "hagezi: author={author} issues={issues} origins={origins} allowed={allowed} ignored={ignored} secs={:.2}",
+        "hagezi: author={author} issues={issues} attachment-hosts={attached} origins={origins} allowed={allowed} ignored={ignored} secs={:.2}",
         started.elapsed().as_secs_f64()
     );
     Ok(())
