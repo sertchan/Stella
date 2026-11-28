@@ -433,7 +433,7 @@ mod tests {
         assert_eq!(tree.kinds["json"].0, 1);
         let sections = tree.sections();
         assert_eq!(sections[0].lines, [RULES.join(", ")]);
-        assert!(sections[1].lines[0].starts_with("type  files  lines"));
+        assert_eq!(sections[1].lines[2], "rs        1       1       13");
         assert_eq!(type_of("a/.gitignore"), ".gitignore");
         assert_eq!(type_of("LICENSE"), "LICENSE");
         assert_eq!(type_of("a/b.tar.gz"), "gz");

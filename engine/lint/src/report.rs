@@ -111,10 +111,20 @@ pub fn table<const N: usize>(header: [&str; N], rows: &[[String; N]]) -> Vec<Str
             *w = (*w).max(cell.chars().count());
         }
     }
+    let mut numeric = [!rows.is_empty(); N];
+    for row in rows {
+        for (n, cell) in numeric.iter_mut().zip(row) {
+            *n &= !cell.is_empty() && cell.bytes().all(|b| b.is_ascii_digit());
+        }
+    }
     let line = |cells: [&str; N]| {
         let mut s = String::new();
-        for (cell, w) in cells.iter().zip(width) {
-            let _ = write!(s, "{cell:<w$}  ");
+        for ((cell, w), right) in cells.iter().zip(width).zip(numeric) {
+            if right {
+                let _ = write!(s, "{cell:>w$}  ");
+            } else {
+                let _ = write!(s, "{cell:<w$}  ");
+            }
         }
         s.trim_end().to_string()
     };
@@ -255,6 +265,18 @@ mod tests {
                 "dependency  version  result",
                 "clap        4.6.10   ok",
                 "x           1        outdated"
+            ]
+        );
+        let counts = [
+            ["standard/tracker".to_string(), "5271".to_string()],
+            ["  umami".to_string(), "7".to_string()],
+        ];
+        assert_eq!(
+            table(["list", "entries"], &counts),
+            [
+                "list              entries",
+                "standard/tracker     5271",
+                "  umami                 7"
             ]
         );
     }

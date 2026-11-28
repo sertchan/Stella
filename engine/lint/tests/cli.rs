@@ -85,7 +85,7 @@ fn sources_reports_and_passes() {
     assert_eq!(clean.status.code(), Some(0), "{}", stderr(&clean));
     assert!(stderr(&clean).contains("source-lint: ok, 1 files"));
     assert!(stderr(&clean).contains(
-        "source-lint: files by type\n  type  files  lines  bytes\n  rs    1      1      13\n"
+        "source-lint: files by type\n  type  files  lines  bytes\n  rs        1      1     13\n"
     ));
     s.write("bad.toml", &format!("x = 1 {} why\n", '#'));
     let bad = lint(&s.0, &["sources", "."], "", None);
@@ -130,7 +130,7 @@ fn commit_messages_and_ranges_are_checked() {
         "{text}"
     );
     assert!(
-        text.contains("none       1      2 problem(s)  Added the entry point."),
+        text.contains("none           1  2 problem(s)  Added the entry point."),
         "{text}"
     );
     let all = lint(&s.0, &["commits", "HEAD~1"], "", None);
