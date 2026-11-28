@@ -44,8 +44,11 @@ pkgs.writeShellApplication {
           echo "error[ci-required] push of $local to main"
           echo "  found    ci-success: $result"
           echo "  expected a commit that already passed CI"
-          echo "  why      main only takes commits that passed every CI check. The checks bind everyone, the owner included, so nothing lands untested."
-          echo "  fix      run land, which pushes the commit to a ci branch, waits for CI and moves main only when CI passes."
+          echo "  why      main only takes commits that passed every CI check. The"
+          echo "           checks bind everyone, the owner included, so nothing lands"
+          echo "           untested."
+          echo "  fix      run land, which pushes the commit to a ci branch, waits for"
+          echo "           CI and moves main only when CI passes."
           exit 1
         fi
         echo "pre-push: $local passed CI as ci-success, so main may take it"
@@ -105,7 +108,13 @@ pkgs.writeShellApplication {
         jq -r 'to_entries[] | "\(.key) \(.value)"' |
         while read -r check drv; do
           text=$(nix log "$drv" 2> /dev/null || true)
-          field() { printf '%s\n' "$text" | sed -n "s/^$1 *//p" | tail -n 1; }
+          field() {
+            printf '%s\n' "$text" | awk -v k="$1" '
+              $1 == k { v = $0; sub(/^[a-z]+ +/, "", v); on = 1; next }
+              on && /^         [^ ]/ { x = $0; sub(/^ +/, "", x); v = v " " x; next }
+              { on = 0 }
+              END { print v }'
+          }
           result=$(field result | sed "s/^$check //")
           printf '  %-15s %-18s %-38s %s\n' "$check" "''${result:-no build log}" "$(field tool | cut -c1-38)" "$(field scope)"
         done
