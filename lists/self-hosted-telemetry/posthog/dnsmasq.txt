@@ -1,0 +1,13 @@
+# Title: Stella Self-Hosted Telemetry: posthog
+# Description: The posthog part of Stella Self-Hosted Telemetry. Self-hosted analytics instances such as Matomo, Plausible, Umami and PostHog on first-party domains
+# Homepage: https://github.com/sertchan/Stella
+# License: https://github.com/sertchan/Stella/blob/main/LICENSE
+# Issues: https://github.com/sertchan/Stella/issues
+# Expires: 1 day
+# Last modified: 28 Nov 2026 00:27 UTC
+# Version: 2026.1128.0027.00
+# Syntax: DNSMasq v2.86 or newer
+# Number of entries: 2
+#
+local=/i.datawrapper.de/
+local=/ph.supabase.com/

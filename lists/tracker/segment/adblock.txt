@@ -1,0 +1,91 @@
+[Adblock Plus]
+! Title: Stella Tracker: segment
+! Description: The segment part of Stella Tracker. Tracking, tag manager and collector hosts found by active discovery and confirmed by how they answer
+! Homepage: https://github.com/sertchan/Stella
+! License: https://github.com/sertchan/Stella/blob/main/LICENSE
+! Issues: https://github.com/sertchan/Stella/issues
+! Expires: 1 day
+! Last modified: 28 Nov 2026 00:27 UTC
+! Version: 2026.1128.0027.00
+! Syntax: AdBlock
+! Number of entries: 79
+!
+||a-cdn.rippling.com^
+||a.survicate.com^
+||analytics.silver-fir.vmware.com^
+||analytics.web.clickup.com^
+||breadcrumbs.buffer.com^
+||cdn.govplus.com^
+||cdn.seg.kraken.com^
+||cdn.segment.synthesia.io^
+||cdn.segment.tcgplayer.com^
+||cdnsegment.edulastic.com^
+||data.web.clickup.com^
+||events-cdn.monarch.com^
+||events-cdn.mural.co^
+||evnt.cruisecritic.com^
+||evs.analytics.gooddog.com^
+||evs.analytics.redis.io^
+||evs.blue.mongodb.com^
+||evs.cbp.vividseats.com^
+||evs.cdp.bigcommerce.com^
+||evs.cdp.consumerreports.org^
+||evs.cdp.dr.dk^
+||evs.cdp.maze.co^
+||evs.cdp.mindbodygreen.com^
+||evs.cdp.mondaq.com^
+||evs.cdp.on.com^
+||evs.cdp.postman.com^
+||evs.cdp.restream.io^
+||evs.cdp.silencershop.com^
+||evs.cdp.stockx.com^
+||evs.cdp.therealreal.com^
+||evs.cdp.waveapps.com^
+||evs.cdp.zenfolio.com^
+||evs.events.rocketmoney.com^
+||evs.metrics.airthings.com^
+||evs.prod-cdp.rula.com^
+||evs.s.calendly.com^
+||evs.scdp.joinhandshake.com^
+||evs.seg.funda.nl^
+||evs.seg.fundadesk.nl^
+||evs.segment.artgrid.io^
+||evs.segment.artlist.io^
+||evs.segment.bradsdeals.com^
+||evs.segment.ca.hardrock.bet^
+||evs.segment.doxy.me^
+||evs.segment.hardrocksportsbook.com^
+||evs.segment.maxpreps.com^
+||evs.segment.nfhsnetwork.com^
+||evs.segment.prodigygame.com^
+||evs.segment.weedmaps.com^
+||evs.sgmt.ankorstore.com^
+||evs.tr.octobre-editions.com^
+||evs.tr.sezane.com^
+||heartbeatcdn.willhaben.at^
+||hscm.honeybook.com^
+||sc.todaytix.com^
+||scdn.phoenix.edu^
+||segment-cdn-assessment.peardeck.com^
+||segment-cdn.assistedliving.org^
+||segment-cdn.biggerpockets.com^
+||segment-cdn.caring.com^
+||segment-cdn.gitbook.com^
+||segment-cdn.ramp.com^
+||segment-cdn.seniorhousingnet.com^
+||segment-cdn.splice.com^
+||segment-cdn.united.vividseats.com^
+||segment-cdn.vividseats.com^
+||segment.discoveryeducation.com^
+||segment.ethoslife.com^
+||segment.everydollar.com^
+||segment.intuitcdn.a.intuit.com^
+||segment.pacvue.com^
+||segment.paperspace.com^
+||segment.sondermind.com^
+||segmentcdn.jumpcloud.com^
+||sgprox.xgritapi.com^
+||spdn.splice.com^
+||stats-api.surfly.com^
+||triangle.makemusic.com^
+||usereventscdn.clever.com^

@@ -1,0 +1,37 @@
+$TTL 3600
+@ SOA localhost. root.localhost. 1795825620 28800 3600 259200 3600
+  NS  localhost.
+;
+; Title: Stella Tracker: adobe
+; Description: The adobe part of Stella Tracker. Tracking, tag manager and collector hosts found by active discovery and confirmed by how they answer
+; Homepage: https://github.com/sertchan/Stella
+; License: https://github.com/sertchan/Stella/blob/main/LICENSE
+; Issues: https://github.com/sertchan/Stella/issues
+; Expires: 1 day
+; Last modified: 28 Nov 2026 00:27 UTC
+; Version: 2026.1128.0027.00
+; Syntax: RPZ
+; Number of entries: 22
+;
+da.usaa.com CNAME .
+*.da.usaa.com CNAME .
+metrics.puma.com CNAME .
+*.metrics.puma.com CNAME .
+metrics.sony.com.tr CNAME .
+*.metrics.sony.com.tr CNAME .
+metrics.trendyol.com CNAME .
+*.metrics.trendyol.com CNAME .
+omni.superonline.net CNAME .
+*.omni.superonline.net CNAME .
+photo-smetrics.cvs.com CNAME .
+*.photo-smetrics.cvs.com CNAME .
+simg.yemeksepeti.com CNAME .
+*.simg.yemeksepeti.com CNAME .
+sitecatalyst.advisorchannel.com CNAME .
+*.sitecatalyst.advisorchannel.com CNAME .
+smetrics.puma.com CNAME .
+*.smetrics.puma.com CNAME .
+smetrics.sony.com.tr CNAME .
+*.smetrics.sony.com.tr CNAME .
+smetrics.trendyol.com CNAME .
+*.smetrics.trendyol.com CNAME .

@@ -1,0 +1,90 @@
+# Title: Stella Tracker: segment
+# Description: The segment part of Stella Tracker. Tracking, tag manager and collector hosts found by active discovery and confirmed by how they answer
+# Homepage: https://github.com/sertchan/Stella
+# License: https://github.com/sertchan/Stella/blob/main/LICENSE
+# Issues: https://github.com/sertchan/Stella/issues
+# Expires: 1 day
+# Last modified: 28 Nov 2026 00:27 UTC
+# Version: 2026.1128.0027.00
+# Syntax: DNSMasq v2.86 or newer
+# Number of entries: 79
+#
+local=/a-cdn.rippling.com/
+local=/a.survicate.com/
+local=/analytics.silver-fir.vmware.com/
+local=/analytics.web.clickup.com/
+local=/breadcrumbs.buffer.com/
+local=/cdn.govplus.com/
+local=/cdn.seg.kraken.com/
+local=/cdn.segment.synthesia.io/
+local=/cdn.segment.tcgplayer.com/
+local=/cdnsegment.edulastic.com/
+local=/data.web.clickup.com/
+local=/events-cdn.monarch.com/
+local=/events-cdn.mural.co/
+local=/evnt.cruisecritic.com/
+local=/evs.analytics.gooddog.com/
+local=/evs.analytics.redis.io/
+local=/evs.blue.mongodb.com/
+local=/evs.cbp.vividseats.com/
+local=/evs.cdp.bigcommerce.com/
+local=/evs.cdp.consumerreports.org/
+local=/evs.cdp.dr.dk/
+local=/evs.cdp.maze.co/
+local=/evs.cdp.mindbodygreen.com/
+local=/evs.cdp.mondaq.com/
+local=/evs.cdp.on.com/
+local=/evs.cdp.postman.com/
+local=/evs.cdp.restream.io/
+local=/evs.cdp.silencershop.com/
+local=/evs.cdp.stockx.com/
+local=/evs.cdp.therealreal.com/
+local=/evs.cdp.waveapps.com/
+local=/evs.cdp.zenfolio.com/
+local=/evs.events.rocketmoney.com/
+local=/evs.metrics.airthings.com/
+local=/evs.prod-cdp.rula.com/
+local=/evs.s.calendly.com/
+local=/evs.scdp.joinhandshake.com/
+local=/evs.seg.funda.nl/
+local=/evs.seg.fundadesk.nl/
+local=/evs.segment.artgrid.io/
+local=/evs.segment.artlist.io/
+local=/evs.segment.bradsdeals.com/
+local=/evs.segment.ca.hardrock.bet/
+local=/evs.segment.doxy.me/
+local=/evs.segment.hardrocksportsbook.com/
+local=/evs.segment.maxpreps.com/
+local=/evs.segment.nfhsnetwork.com/
+local=/evs.segment.prodigygame.com/
+local=/evs.segment.weedmaps.com/
+local=/evs.sgmt.ankorstore.com/
+local=/evs.tr.octobre-editions.com/
+local=/evs.tr.sezane.com/
+local=/heartbeatcdn.willhaben.at/
+local=/hscm.honeybook.com/
+local=/sc.todaytix.com/
+local=/scdn.phoenix.edu/
+local=/segment-cdn-assessment.peardeck.com/
+local=/segment-cdn.assistedliving.org/
+local=/segment-cdn.biggerpockets.com/
+local=/segment-cdn.caring.com/
+local=/segment-cdn.gitbook.com/
+local=/segment-cdn.ramp.com/
+local=/segment-cdn.seniorhousingnet.com/
+local=/segment-cdn.splice.com/
+local=/segment-cdn.united.vividseats.com/
+local=/segment-cdn.vividseats.com/
+local=/segment.discoveryeducation.com/
+local=/segment.ethoslife.com/
+local=/segment.everydollar.com/
+local=/segment.intuitcdn.a.intuit.com/
+local=/segment.pacvue.com/
+local=/segment.paperspace.com/
+local=/segment.sondermind.com/
+local=/segmentcdn.jumpcloud.com/
+local=/sgprox.xgritapi.com/
+local=/spdn.splice.com/
+local=/stats-api.surfly.com/
+local=/triangle.makemusic.com/
+local=/usereventscdn.clever.com/

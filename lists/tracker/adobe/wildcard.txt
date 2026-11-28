@@ -1,0 +1,22 @@
+# Title: Stella Tracker: adobe
+# Description: The adobe part of Stella Tracker. Tracking, tag manager and collector hosts found by active discovery and confirmed by how they answer
+# Homepage: https://github.com/sertchan/Stella
+# License: https://github.com/sertchan/Stella/blob/main/LICENSE
+# Issues: https://github.com/sertchan/Stella/issues
+# Expires: 1 day
+# Last modified: 28 Nov 2026 00:27 UTC
+# Version: 2026.1128.0027.00
+# Syntax: Domains Wildcard (without subdomains)
+# Number of entries: 11
+#
+*.da.usaa.com
+*.metrics.puma.com
+*.metrics.sony.com.tr
+*.metrics.trendyol.com
+*.omni.superonline.net
+*.photo-smetrics.cvs.com
+*.simg.yemeksepeti.com
+*.sitecatalyst.advisorchannel.com
+*.smetrics.puma.com
+*.smetrics.sony.com.tr
+*.smetrics.trendyol.com

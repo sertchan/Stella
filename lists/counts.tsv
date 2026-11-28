@@ -1,5 +1,15 @@
-list	zones	hosts	entries
-ads	0	0	0
-tracker	0	0	0
-telemetry	0	0	0
-self-hosted-telemetry	0	0	0
+list	sublist	entries
+ads	-	0
+tracker	-	7040
+tracker	adobe	11
+tracker	mixpanel	1
+tracker	rudderstack	10
+tracker	segment	79
+tracker	server-side-gtm	6804
+tracker	snowplow	135
+telemetry	-	0
+self-hosted-telemetry	-	752
+self-hosted-telemetry	matomo	177
+self-hosted-telemetry	plausible	207
+self-hosted-telemetry	posthog	2
+self-hosted-telemetry	umami	366

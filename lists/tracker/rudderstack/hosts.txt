@@ -1,0 +1,21 @@
+# Title: Stella Tracker: rudderstack
+# Description: The rudderstack part of Stella Tracker. Tracking, tag manager and collector hosts found by active discovery and confirmed by how they answer
+# Homepage: https://github.com/sertchan/Stella
+# License: https://github.com/sertchan/Stella/blob/main/LICENSE
+# Issues: https://github.com/sertchan/Stella/issues
+# Expires: 1 day
+# Last modified: 28 Nov 2026 00:27 UTC
+# Version: 2026.1128.0027.00
+# Syntax: Hosts (without subdomains)
+# Number of entries: 10
+#
+0.0.0.0 analytics-v2.revsure.cloud
+0.0.0.0 analytics.brandalley.co.uk
+0.0.0.0 analytics.revsure-eu.cloud
+0.0.0.0 cdp-data.news9live.com
+0.0.0.0 rdr.atpnd.com
+0.0.0.0 rs-data.teepublic.com
+0.0.0.0 rs-events.redbubble.com
+0.0.0.0 rudder-event.otter.ai
+0.0.0.0 rudderstack-external.data.getirapi.com
+0.0.0.0 ue.databricks.com

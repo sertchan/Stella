@@ -1,0 +1,3 @@
+entry	list	sublist	added	kind	products	evidence	sources	chain	addresses	members
+i.datawrapper.de	self-hosted-telemetry	posthog	2026-11-28T00:27:00Z	host	posthog	posthog: /static/array.js	hagezi-issue #12389 reported 2026-11-15: PostHog reverse proxy, /static/array.js is the PostHog script		104.20.35.11,172.66.145.142	
+ph.supabase.com	self-hosted-telemetry	posthog	2026-11-28T00:27:00Z	host	posthog	posthog: /static/array.js	hagezi-issue #12389 reported 2026-11-15: PostHog reverse proxy, /static/array.js is the PostHog script		104.18.42.230,172.64.145.26	

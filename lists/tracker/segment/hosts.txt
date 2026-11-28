@@ -1,0 +1,90 @@
+# Title: Stella Tracker: segment
+# Description: The segment part of Stella Tracker. Tracking, tag manager and collector hosts found by active discovery and confirmed by how they answer
+# Homepage: https://github.com/sertchan/Stella
+# License: https://github.com/sertchan/Stella/blob/main/LICENSE
+# Issues: https://github.com/sertchan/Stella/issues
+# Expires: 1 day
+# Last modified: 28 Nov 2026 00:27 UTC
+# Version: 2026.1128.0027.00
+# Syntax: Hosts (without subdomains)
+# Number of entries: 79
+#
+0.0.0.0 a-cdn.rippling.com
+0.0.0.0 a.survicate.com
+0.0.0.0 analytics.silver-fir.vmware.com
+0.0.0.0 analytics.web.clickup.com
+0.0.0.0 breadcrumbs.buffer.com
+0.0.0.0 cdn.govplus.com
+0.0.0.0 cdn.seg.kraken.com
+0.0.0.0 cdn.segment.synthesia.io
+0.0.0.0 cdn.segment.tcgplayer.com
+0.0.0.0 cdnsegment.edulastic.com
+0.0.0.0 data.web.clickup.com
+0.0.0.0 events-cdn.monarch.com
+0.0.0.0 events-cdn.mural.co
+0.0.0.0 evnt.cruisecritic.com
+0.0.0.0 evs.analytics.gooddog.com
+0.0.0.0 evs.analytics.redis.io
+0.0.0.0 evs.blue.mongodb.com
+0.0.0.0 evs.cbp.vividseats.com
+0.0.0.0 evs.cdp.bigcommerce.com
+0.0.0.0 evs.cdp.consumerreports.org
+0.0.0.0 evs.cdp.dr.dk
+0.0.0.0 evs.cdp.maze.co
+0.0.0.0 evs.cdp.mindbodygreen.com
+0.0.0.0 evs.cdp.mondaq.com
+0.0.0.0 evs.cdp.on.com
+0.0.0.0 evs.cdp.postman.com
+0.0.0.0 evs.cdp.restream.io
+0.0.0.0 evs.cdp.silencershop.com
+0.0.0.0 evs.cdp.stockx.com
+0.0.0.0 evs.cdp.therealreal.com
+0.0.0.0 evs.cdp.waveapps.com
+0.0.0.0 evs.cdp.zenfolio.com
+0.0.0.0 evs.events.rocketmoney.com
+0.0.0.0 evs.metrics.airthings.com
+0.0.0.0 evs.prod-cdp.rula.com
+0.0.0.0 evs.s.calendly.com
+0.0.0.0 evs.scdp.joinhandshake.com
+0.0.0.0 evs.seg.funda.nl
+0.0.0.0 evs.seg.fundadesk.nl
+0.0.0.0 evs.segment.artgrid.io
+0.0.0.0 evs.segment.artlist.io
+0.0.0.0 evs.segment.bradsdeals.com
+0.0.0.0 evs.segment.ca.hardrock.bet
+0.0.0.0 evs.segment.doxy.me
+0.0.0.0 evs.segment.hardrocksportsbook.com
+0.0.0.0 evs.segment.maxpreps.com
+0.0.0.0 evs.segment.nfhsnetwork.com
+0.0.0.0 evs.segment.prodigygame.com
+0.0.0.0 evs.segment.weedmaps.com
+0.0.0.0 evs.sgmt.ankorstore.com
+0.0.0.0 evs.tr.octobre-editions.com
+0.0.0.0 evs.tr.sezane.com
+0.0.0.0 heartbeatcdn.willhaben.at
+0.0.0.0 hscm.honeybook.com
+0.0.0.0 sc.todaytix.com
+0.0.0.0 scdn.phoenix.edu
+0.0.0.0 segment-cdn-assessment.peardeck.com
+0.0.0.0 segment-cdn.assistedliving.org
+0.0.0.0 segment-cdn.biggerpockets.com
+0.0.0.0 segment-cdn.caring.com
+0.0.0.0 segment-cdn.gitbook.com
+0.0.0.0 segment-cdn.ramp.com
+0.0.0.0 segment-cdn.seniorhousingnet.com
+0.0.0.0 segment-cdn.splice.com
+0.0.0.0 segment-cdn.united.vividseats.com
+0.0.0.0 segment-cdn.vividseats.com
+0.0.0.0 segment.discoveryeducation.com
+0.0.0.0 segment.ethoslife.com
+0.0.0.0 segment.everydollar.com
+0.0.0.0 segment.intuitcdn.a.intuit.com
+0.0.0.0 segment.pacvue.com
+0.0.0.0 segment.paperspace.com
+0.0.0.0 segment.sondermind.com
+0.0.0.0 segmentcdn.jumpcloud.com
+0.0.0.0 sgprox.xgritapi.com
+0.0.0.0 spdn.splice.com
+0.0.0.0 stats-api.surfly.com
+0.0.0.0 triangle.makemusic.com
+0.0.0.0 usereventscdn.clever.com
