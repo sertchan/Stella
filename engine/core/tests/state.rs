@@ -201,7 +201,7 @@ fn lists_and_suffixes_load_from_files() -> anyhow::Result<()> {
 fn progress_prints_text_and_json() {
     let mut p = Progress::new("probe", 10);
     assert!(!p.due());
-    p.print(3, 2, Some(1), &[("slow.test".into(), 12)]);
+    p.print(3, 2, Some(1), &[("slow.test".into(), 12.0)]);
     p.tick(4, 1, None);
     progress::set_json(true);
     p.print(5, 0, None, &[]);

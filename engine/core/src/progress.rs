@@ -15,8 +15,8 @@ pub struct Snapshot<'a> {
     pub total: usize,
     pub inflight: usize,
     pub hits: Option<usize>,
-    pub secs: u64,
-    pub slowest: &'a [(String, u64)],
+    pub secs: f64,
+    pub slowest: &'a [(String, f64)],
 }
 
 fn escape(s: &str) -> String {
@@ -34,12 +34,12 @@ pub fn render(s: &Snapshot, json: bool) -> String {
         let slowest = s
             .slowest
             .iter()
-            .map(|(h, t)| format!("{{\"host\":\"{}\",\"secs\":{t}}}", escape(h)))
+            .map(|(h, t)| format!("{{\"host\":\"{}\",\"secs\":{t:.2}}}", escape(h)))
             .collect::<Vec<_>>()
             .join(",");
         let hits = s.hits.map_or("null".to_string(), |h| h.to_string());
         return format!(
-            "{{\"progress\":\"{}\",\"done\":{},\"total\":{},\"inflight\":{},\"hits\":{hits},\"secs\":{},\"slowest\":[{slowest}]}}",
+            "{{\"progress\":\"{}\",\"done\":{},\"total\":{},\"inflight\":{},\"hits\":{hits},\"secs\":{:.2},\"slowest\":[{slowest}]}}",
             escape(s.label),
             s.done,
             s.total,
@@ -54,12 +54,12 @@ pub fn render(s: &Snapshot, json: bool) -> String {
     if let Some(h) = s.hits {
         line.push_str(&format!(" hits={h}"));
     }
-    line.push_str(&format!(" secs={}", s.secs));
+    line.push_str(&format!(" secs={:.2}", s.secs));
     if !s.slowest.is_empty() {
         let slow = s
             .slowest
             .iter()
-            .map(|(h, t)| format!("{h}({t}s)"))
+            .map(|(h, t)| format!("{h}({t:.2} s)"))
             .collect::<Vec<_>>()
             .join(",");
         line.push_str(&format!(" slowest={slow}"));
@@ -94,7 +94,7 @@ impl Progress {
         done: usize,
         inflight: usize,
         hits: Option<usize>,
-        slowest: &[(String, u64)],
+        slowest: &[(String, f64)],
     ) {
         self.last = Instant::now();
         let snap = Snapshot {
@@ -103,7 +103,7 @@ impl Progress {
             total: self.total,
             inflight,
             hits,
-            secs: self.started.elapsed().as_secs(),
+            secs: self.started.elapsed().as_secs_f64(),
             slowest,
         };
         eprintln!("{}", render(&snap, JSON.load(Ordering::Relaxed)));
@@ -119,11 +119,11 @@ impl Progress {
 pub fn slowest<'a>(
     started: impl Iterator<Item = (&'a str, Instant)>,
     n: usize,
-) -> Vec<(String, u64)> {
-    let mut v: Vec<(String, u64)> = started
-        .map(|(h, t)| (h.to_string(), t.elapsed().as_secs()))
+) -> Vec<(String, f64)> {
+    let mut v: Vec<(String, f64)> = started
+        .map(|(h, t)| (h.to_string(), t.elapsed().as_secs_f64()))
         .collect();
-    v.sort_unstable_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    v.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     v.truncate(n);
     v
 }
@@ -132,34 +132,34 @@ pub fn slowest<'a>(
 mod tests {
     use super::*;
 
-    fn snap(slowest: &[(String, u64)]) -> Snapshot<'_> {
+    fn snap(slowest: &[(String, f64)]) -> Snapshot<'_> {
         Snapshot {
             label: "probe",
             done: 120,
             total: 400,
             inflight: 30,
             hits: Some(4),
-            secs: 61,
+            secs: 61.237,
             slowest,
         }
     }
 
     #[test]
     fn renders_text_and_json() {
-        let slow = vec![("a.io".to_string(), 19), ("b\"x".to_string(), 7)];
+        let slow = vec![("a.io".to_string(), 19.5), ("b\"x".to_string(), 7.004)];
         assert_eq!(
             render(&snap(&slow), false),
-            "probe: progress done=120/400 inflight=30 hits=4 secs=61 slowest=a.io(19s),b\"x(7s)"
+            "probe: progress done=120/400 inflight=30 hits=4 secs=61.24 slowest=a.io(19.50 s),b\"x(7.00 s)"
         );
         assert_eq!(
             render(&snap(&slow), true),
-            "{\"progress\":\"probe\",\"done\":120,\"total\":400,\"inflight\":30,\"hits\":4,\"secs\":61,\"slowest\":[{\"host\":\"a.io\",\"secs\":19},{\"host\":\"b\\\"x\",\"secs\":7}]}"
+            "{\"progress\":\"probe\",\"done\":120,\"total\":400,\"inflight\":30,\"hits\":4,\"secs\":61.24,\"slowest\":[{\"host\":\"a.io\",\"secs\":19.50},{\"host\":\"b\\\"x\",\"secs\":7.00}]}"
         );
         let mut plain = snap(&[]);
         plain.hits = None;
         assert_eq!(
             render(&plain, false),
-            "probe: progress done=120/400 inflight=30 secs=61"
+            "probe: progress done=120/400 inflight=30 secs=61.24"
         );
         assert!(render(&plain, true).contains("\"hits\":null"));
     }
