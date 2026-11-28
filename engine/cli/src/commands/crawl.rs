@@ -224,7 +224,7 @@ pub fn score(ctx: &mut Context, args: &ScoreArgs) -> Result<()> {
         let n = known + free;
         if n > 0 {
             eprintln!(
-                "score={score} hosts={n} known={known} share={:.0}%",
+                "score={score} hosts={n} known={known} share={:.1}%",
                 *known as f64 * 100.0 / n as f64
             );
         }
