@@ -152,10 +152,10 @@ in {
   lists = mkCheck {
     name = "lists";
     inputs = [lint];
-    why = "The lists are what Stella ships. HaGeZi and every blocker fetch them directly, so a broken header, a wrong entry count, a bad rule or two formats that disagree reach users at once.";
+    why = "The lists are what Stella ships. HaGeZi fetches the standard tier into every list and the aggressive tier into Pro++ and Ultimate, so a broken header, a wrong entry count, a stray file or a name in two tiers reaches users at once.";
     fix = "Run stella publish with the release build from nix run .#stella and commit the lists folder as it comes out. Never edit a list by hand.";
     tool = "stella-lint --version";
-    scope = "$(find ${self}/lists -name '*.txt' | wc -l) list files under lists";
+    scope = "$(find ${self}/lists -name domains.txt | wc -l) lists and $(find ${self}/lists -path '*/subcategories/*.txt' | wc -l) subcategories in the standard and aggressive tiers";
     script = "stella-lint lists ${self}/lists";
   };
   source-lint = mkCheck {
