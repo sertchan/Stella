@@ -40,18 +40,47 @@ impl Finding {
 
     pub fn render(&self) -> String {
         let mut s = format!("error[{}] {}\n", self.rule, self.place);
-        for (label, value) in [
-            ("found", self.found.as_str()),
-            ("expected", self.expected.as_str()),
-            ("why", self.why),
-            ("fix", self.fix.as_str()),
+        for (label, value, prose) in [
+            ("found", self.found.as_str(), false),
+            ("expected", self.expected.as_str(), false),
+            ("why", self.why, true),
+            ("fix", self.fix.as_str(), true),
         ] {
-            if !value.is_empty() {
+            if value.is_empty() {
+                continue;
+            }
+            if !prose {
                 let _ = writeln!(s, "  {label:<9}{value}");
+                continue;
+            }
+            for (n, line) in wrap(value, LINE_WIDTH - LABEL_WIDTH).iter().enumerate() {
+                let label = if n == 0 { label } else { "" };
+                let _ = writeln!(s, "  {label:<9}{line}");
             }
         }
         s
     }
+}
+
+pub const LINE_WIDTH: usize = 72;
+const LABEL_WIDTH: usize = 11;
+
+pub fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > width {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.is_empty() || lines.is_empty() {
+        lines.push(line);
+    }
+    lines
 }
 
 fn escape(v: &str) -> String {
@@ -160,6 +189,29 @@ impl Outcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wraps_long_prose_and_keeps_found_whole() {
+        assert_eq!(wrap("a bb ccc dddd", 6), ["a bb", "ccc", "dddd"]);
+        assert_eq!(wrap("", 6), [""]);
+        assert_eq!(wrap("averyverylongword x", 4), ["averyverylongword", "x"]);
+        let long = "word ".repeat(40);
+        let f = Finding::new("rule", "x", "short reason")
+            .found(long.trim())
+            .fix(long.trim());
+        let text = f.render();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[1].len(), "  found    ".len() + long.trim().len());
+        assert!(
+            lines
+                .iter()
+                .skip(2)
+                .all(|l| l.chars().count() <= LINE_WIDTH),
+            "{text}"
+        );
+        assert!(lines[3].starts_with("  fix      word"));
+        assert!(lines[4].starts_with("           word"));
+    }
 
     #[test]
     fn renders_every_filled_field() {
