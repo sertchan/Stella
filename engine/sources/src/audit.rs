@@ -163,6 +163,47 @@ pub struct AuthoredIssue {
     pub kind: &'static str,
     pub outcome: &'static str,
     pub entries: Vec<IssueEntry>,
+    pub attachments: Vec<String>,
+}
+
+static ATTACHMENT: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"https://github\.com/user-attachments/files/\d+/[^\s)\]>"']+"#)
+        .expect("ATTACHMENT regex")
+});
+
+pub fn attachment_urls(body: &str) -> Vec<String> {
+    let mut v: Vec<String> = ATTACHMENT
+        .find_iter(body)
+        .map(|m| m.as_str().to_string())
+        .collect();
+    v.dedup();
+    v
+}
+
+pub fn attachment_name(url: &str) -> &str {
+    url.rsplit('/').next().unwrap_or(url)
+}
+
+pub fn attachment_entries(text: &str) -> Vec<IssueEntry> {
+    let mut out: Vec<IssueEntry> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut note = String::new();
+    for l in text.lines() {
+        let t = l.trim();
+        if let Some(c) = t.strip_prefix('#') {
+            note = c.trim().to_string();
+            continue;
+        }
+        for host in t.split([' ', '\t', ',']).filter_map(clean_host) {
+            if host.contains('.') && seen.insert(host.clone()) {
+                out.push(IssueEntry {
+                    host,
+                    note: note.clone(),
+                });
+            }
+        }
+    }
+    out
 }
 
 pub fn authored_issues_url(author: &str, page: usize) -> String {
@@ -218,6 +259,7 @@ pub fn parse_authored(body: &[u8]) -> Result<Vec<AuthoredIssue>> {
                     &labels,
                 ),
                 entries: issue_entries(i.get("body").and_then(Value::as_str).unwrap_or("")),
+                attachments: attachment_urls(i.get("body").and_then(Value::as_str).unwrap_or("")),
             })
         })
         .collect())
@@ -444,6 +486,32 @@ mod tests {
         );
         assert!(issue_entries("no heading\na.io\n").is_empty());
         assert_eq!(domain_block(body).map(|v| v.len()), Some(3));
+    }
+
+    #[test]
+    fn reads_attachment_links_and_files() {
+        let body = "see [domains.txt](https://github.com/user-attachments/files/34813046/domains.txt) and https://github.com/user-attachments/files/1/matomo-hosts.txt\n";
+        let urls = attachment_urls(body);
+        assert_eq!(
+            urls,
+            [
+                "https://github.com/user-attachments/files/34813046/domains.txt",
+                "https://github.com/user-attachments/files/1/matomo-hosts.txt"
+            ]
+        );
+        assert_eq!(attachment_name(&urls[1]), "matomo-hosts.txt");
+        let file = "# self hosted matomo\nstats.a.io\nStats.A.io\n\nlocalhost\nb.io, c.io\n";
+        let got = attachment_entries(file);
+        assert_eq!(
+            got.iter()
+                .map(|e| (e.host.as_str(), e.note.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("stats.a.io", "self hosted matomo"),
+                ("b.io", "self hosted matomo"),
+                ("c.io", "self hosted matomo")
+            ]
+        );
     }
 
     #[test]
