@@ -7,6 +7,7 @@
   tests,
 }: let
   inherit (pkgs.lib.fileset) toSource;
+  width = 72;
   count = pattern: dir: "$(find ${dir} -name '${pattern}' -not -path '*/target/*' | wc -l)";
   header = {
     name,
@@ -18,10 +19,15 @@
     elapsed() {
       awk -v s="$started" -v e="$(date +%s%N)" 'BEGIN { printf "%.2f", (e - s) / 1e9 }'
     }
-    echo "check    ${name}"
-    echo "purpose  ${why}"
-    echo "tool     $(${tool} 2>&1 | head -n 1)"
-    echo "scope    ${scope}"
+    field() {
+      local label=$1 pad
+      pad=$(printf '%*s' "''${#label}" "")
+      printf '%s\n' "$2" | fold -s -w $((${toString width} - ''${#label})) | sed -e 's/ *$//' -e "1s/^/$label/" -e "2,\$s/^/$pad/"
+    }
+    field "check    " "${name}"
+    field "purpose  " "${why}"
+    field "tool     " "$(${tool} 2>&1 | head -n 1)"
+    field "scope    " "${scope}"
     echo
   '';
   passed = name: ''
@@ -33,8 +39,8 @@
     echo "result   ${name} failed in $(elapsed) s"
     echo
     echo "error[${name}] the ${name} check failed, see the output above"
-    echo "  why      ${why}"
-    echo "  fix      ${fix}"
+    field "  why      " "${why}"
+    field "  fix      " "${fix}"
   '';
   mkCheck = {
     name,
