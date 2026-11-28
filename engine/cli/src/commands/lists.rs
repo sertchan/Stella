@@ -8,6 +8,14 @@ use stella_core::category::Category;
 use stella_core::list::Format;
 
 pub const NXDOMAIN: i64 = 3;
+const DEAD_WHY_FIX: &str =
+    "  why      A dead name blocks nothing and costs every blocker memory and
+           lookup time. HaGeZi removes dead names too.
+  fix      Run stella lists check and then stella publish with the
+           release build from nix run .#stella. Publish removes the name
+           and logs the reason in lists/changelog.tsv. Commit the lists
+           folder with the lists scope.
+";
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -115,12 +123,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
         eprintln!("error[dead-entry] lists/{list}/domains.txt {host}");
         eprintln!("  found    NXDOMAIN from Stella's resolver, twice in a row");
         eprintln!("  expected a name that still exists");
-        eprintln!(
-            "  why      A dead name blocks nothing and costs every blocker memory and lookup time. HaGeZi removes dead names too."
-        );
-        eprintln!(
-            "  fix      Run stella lists check and then stella publish with the release build from nix run .#stella. Publish removes the name and logs the reason in lists/changelog.tsv. Commit the lists folder with the lists scope."
-        );
+        eprint!("{DEAD_WHY_FIX}");
     }
     bail!("{} dead entr(ies) in the published lists", dead.len())
 }
