@@ -5,24 +5,24 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use stella_core::category::Category;
-use stella_core::list::{Format, Header, render};
+use stella_core::list::{
+    self, CHANGELOG_FILE, COUNTS_FILE, DOMAINS_FILE, Header, LISTS_DIR, METADATA_FILE,
+    SUBCATEGORIES_DIR, Tier, render,
+};
 
-pub const LISTS_DIR: &str = "lists";
-pub const COUNTS_FILE: &str = "counts.tsv";
-pub const METADATA_FILE: &str = "metadata.tsv";
-pub const CHANGELOG_FILE: &str = "changelog.tsv";
-pub const CHANGELOG_HEADER: &str = "time\taction\tentry\tlist\tsublist\treason\n";
+pub const CHANGELOG_HEADER: &str = "time\taction\tentry\tlist\tsubcategory\treason\n";
+pub const COUNTS_HEADER: &str = "list\tsubcategory\tentries\n";
 pub const ADDED: &str = "added";
 pub const REMOVED: &str = "removed";
 pub const MOVED: &str = "moved";
+const WHOLE_LIST: &str = "-";
 
 #[derive(clap::Args)]
 pub struct PublishArgs {
     #[arg(
         long,
         default_value = LISTS_DIR,
-        help = "Directory that gets one folder per list and per sublist with every format, metadata.tsv and changelog.tsv"
+        help = "Directory that gets the standard and aggressive tiers, one folder per list with domains.txt, metadata.tsv and subcategories, and changelog.tsv"
     )]
     dir: PathBuf,
     #[arg(
@@ -36,7 +36,7 @@ pub struct PublishArgs {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Placed {
     pub list: String,
-    pub sublist: String,
+    pub subcategory: String,
     pub added: String,
 }
 
@@ -44,7 +44,7 @@ pub fn history(changelog: &str) -> BTreeMap<String, Placed> {
     let mut now: BTreeMap<String, Placed> = BTreeMap::new();
     for line in changelog.lines().skip(1) {
         let f: Vec<&str> = line.split('\t').collect();
-        let [time, action, entry, list, sublist, ..] = f[..] else {
+        let [time, action, entry, list, subcategory, ..] = f[..] else {
             continue;
         };
         match action {
@@ -53,7 +53,7 @@ pub fn history(changelog: &str) -> BTreeMap<String, Placed> {
                     entry.to_string(),
                     Placed {
                         list: list.to_string(),
-                        sublist: sublist.to_string(),
+                        subcategory: subcategory.to_string(),
                         added: time.to_string(),
                     },
                 );
@@ -61,7 +61,7 @@ pub fn history(changelog: &str) -> BTreeMap<String, Placed> {
             MOVED => {
                 if let Some(p) = now.get_mut(entry) {
                     p.list = list.to_string();
-                    p.sublist = sublist.to_string();
+                    p.subcategory = subcategory.to_string();
                 }
             }
             REMOVED => {
@@ -106,27 +106,21 @@ pub fn changes(
     let mut seen: FxHashSet<&str> = FxHashSet::default();
     for e in entries {
         seen.insert(&e.name);
+        let list = e.list();
+        let reason = e.reason().replace(['\t', '\n'], " ");
         match before.get(&e.name) {
             None => {
                 let _ = writeln!(
                     out,
-                    "{time}\t{ADDED}\t{}\t{}\t{}\t{}",
-                    e.name,
-                    e.list(),
-                    e.sublist,
-                    e.reason().replace(['\t', '\n'], " ")
+                    "{time}\t{ADDED}\t{}\t{list}\t{}\t{reason}",
+                    e.name, e.subcategory
                 );
             }
-            Some(p) if p.list != e.list() || p.sublist != e.sublist => {
+            Some(p) if p.list != list || p.subcategory != e.subcategory => {
                 let _ = writeln!(
                     out,
-                    "{time}\t{MOVED}\t{}\t{}\t{}\tfrom {}/{} | {}",
-                    e.name,
-                    e.list(),
-                    e.sublist,
-                    p.list,
-                    p.sublist,
-                    e.reason().replace(['\t', '\n'], " ")
+                    "{time}\t{MOVED}\t{}\t{list}\t{}\tfrom {}/{} | {reason}",
+                    e.name, e.subcategory, p.list, p.subcategory
                 );
             }
             Some(_) => {}
@@ -138,7 +132,7 @@ pub fn changes(
                 out,
                 "{time}\t{REMOVED}\t{name}\t{}\t{}\t{}",
                 p.list,
-                p.sublist,
+                p.subcategory,
                 removal_reason(name, why)
             );
         }
@@ -146,46 +140,50 @@ pub fn changes(
     out
 }
 
-fn write_list(
-    dir: &Path,
+pub fn existing_subcategories(dir: &Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir.join(SUBCATEGORIES_DIR))
+        .map(|d| {
+            d.filter_map(std::result::Result::ok)
+                .filter_map(|e| {
+                    e.file_name()
+                        .to_string_lossy()
+                        .strip_suffix(".txt")
+                        .map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort_unstable();
+    v
+}
+
+fn write_domains(
+    path: &Path,
     title: &str,
     description: &str,
     entries: &[&Entry],
-    added: &FxHashMap<String, String>,
     modified: i64,
 ) -> Result<()> {
-    std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     let names: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
     let header = Header {
         title,
         description,
         modified,
     };
-    for format in Format::ALL {
-        std::fs::write(
-            dir.join(format.file_name()),
-            render(format, &header, &names),
-        )?;
-    }
+    std::fs::write(path, render(&header, &names))
+        .with_context(|| format!("write {}", path.display()))
+}
+
+fn write_metadata(
+    path: &Path,
+    entries: &[&Entry],
+    added: &FxHashMap<String, String>,
+) -> Result<()> {
     let mut meta = METADATA_HEADER.to_string();
     for e in entries {
         meta.push_str(&e.metadata(added.get(&e.name).map_or("-", String::as_str)));
     }
-    std::fs::write(dir.join(METADATA_FILE), meta)?;
-    Ok(())
-}
-
-fn existing_sublists(dir: &Path) -> Vec<String> {
-    let mut v: Vec<String> = std::fs::read_dir(dir)
-        .map(|d| {
-            d.filter_map(std::result::Result::ok)
-                .filter(|e| e.path().is_dir())
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .collect()
-        })
-        .unwrap_or_default();
-    v.sort_unstable();
-    v
+    std::fs::write(path, meta).with_context(|| format!("write {}", path.display()))
 }
 
 pub fn run(ctx: &Context, args: &PublishArgs) -> Result<()> {
@@ -234,36 +232,49 @@ pub fn run(ctx: &Context, args: &PublishArgs) -> Result<()> {
     };
     log.push_str(&events);
     std::fs::write(&log_path, &log)?;
-    let after = history(&log);
-    let added: FxHashMap<String, String> = after.into_iter().map(|(k, p)| (k, p.added)).collect();
-    let mut counts = String::from("list\tsublist\tentries\n");
-    for c in Category::ALL {
-        let mine = picks.chosen(Some(c), None);
-        let dir = args.dir.join(c.slug());
-        write_list(&dir, c.title(), c.description(), &mine, &added, modified)?;
-        let _ = writeln!(counts, "{}\t-\t{}", c.slug(), mine.len());
-        let mut subs: Vec<String> = mine.iter().map(|e| e.sublist.clone()).collect();
-        subs.extend(existing_sublists(&dir));
-        subs.sort_unstable();
-        subs.dedup();
-        for s in &subs {
-            let part = picks.chosen(Some(c), Some(s));
-            write_list(
-                &dir.join(s),
-                &c.sublist_title(s),
-                &c.sublist_description(s),
-                &part,
-                &added,
+    let added: FxHashMap<String, String> = history(&log)
+        .into_iter()
+        .map(|(k, p)| (k, p.added))
+        .collect();
+    let mut counts = COUNTS_HEADER.to_string();
+    for tier in Tier::ALL {
+        for &c in tier.categories() {
+            let mine = picks.chosen(Some(tier), Some(c), None);
+            let dir = list::folder(&args.dir, tier, c);
+            std::fs::create_dir_all(dir.join(SUBCATEGORIES_DIR))
+                .with_context(|| format!("create {}", dir.display()))?;
+            write_domains(
+                &dir.join(DOMAINS_FILE),
+                &list::title(tier, c, None),
+                &list::description(tier, c, None),
+                &mine,
                 modified,
             )?;
-            let _ = writeln!(counts, "{}\t{s}\t{}", c.slug(), part.len());
+            write_metadata(&dir.join(METADATA_FILE), &mine, &added)?;
+            let id = list::list_id(tier, c);
+            let _ = writeln!(counts, "{id}\t{WHOLE_LIST}\t{}", mine.len());
+            let mut subs: Vec<String> = mine.iter().map(|e| e.subcategory.clone()).collect();
+            subs.extend(existing_subcategories(&dir));
+            subs.sort_unstable();
+            subs.dedup();
+            for s in &subs {
+                let part = picks.chosen(Some(tier), Some(c), Some(s));
+                write_domains(
+                    &list::subcategory_file(&args.dir, tier, c, s),
+                    &list::title(tier, c, Some(s)),
+                    &list::description(tier, c, Some(s)),
+                    &part,
+                    modified,
+                )?;
+                let _ = writeln!(counts, "{id}\t{s}\t{}", part.len());
+            }
+            eprintln!(
+                "published {}: entries={} subcategories={}",
+                dir.display(),
+                mine.len(),
+                subs.len()
+            );
         }
-        eprintln!(
-            "published {}: entries={} sublists={}",
-            dir.display(),
-            mine.len(),
-            subs.len()
-        );
     }
     std::fs::write(args.dir.join(COUNTS_FILE), counts)?;
     eprintln!(
@@ -277,12 +288,14 @@ pub fn run(ctx: &Context, args: &PublishArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use stella_core::category::Category;
 
-    fn entry(name: &str, sublist: &str) -> Entry {
+    fn entry(name: &str, subcategory: &str) -> Entry {
         Entry {
             name: name.into(),
             category: Some(Category::SelfHostedTelemetry),
-            sublist: sublist.into(),
+            tier: Tier::Aggressive,
+            subcategory: subcategory.into(),
             products: vec!["umami".into()],
             ..Entry::default()
         }
@@ -314,10 +327,10 @@ mod tests {
         let got = changes(&before, &entries, "t3", &why);
         let lines: Vec<&str> = got.lines().collect();
         assert_eq!(lines.len(), 4, "{got}");
-        assert!(lines[0].starts_with("t3\tmoved\ta.io\tself-hosted-telemetry\tmatomo\tfrom self-hosted-telemetry/umami | product umami"));
-        assert!(
-            lines[1].starts_with("t3\tadded\te.io\tself-hosted-telemetry\tumami\tproduct umami")
-        );
+        assert!(lines[0].starts_with("t3\tmoved\ta.io\taggressive/self-hosted-telemetry\tmatomo\tfrom self-hosted-telemetry/umami | product umami"), "{got}");
+        assert!(lines[1].starts_with(
+            "t3\tadded\te.io\taggressive/self-hosted-telemetry\tumami\tproduct umami"
+        ));
         assert!(
             lines[2]
                 .contains("removed\tb.io\ttracker\tother\tNXDOMAIN from Stella's resolver at t2")
@@ -326,7 +339,8 @@ mod tests {
             "removed\tc.io\ttracker\tother\tno longer a pick, the battery now says REVIEW umami"
         ));
         let after = history(&format!("{log}{got}"));
-        assert_eq!(after["a.io"].sublist, "matomo");
+        assert_eq!(after["a.io"].subcategory, "matomo");
+        assert_eq!(after["a.io"].list, "aggressive/self-hosted-telemetry");
         assert_eq!(after["a.io"].added, "t0");
         assert!(!after.contains_key("b.io"));
         let blocked = |_: &str| Some("false positive".to_string());
@@ -354,5 +368,18 @@ mod tests {
             removal_reason("y.io", &why),
             "no longer a pick, no current hit"
         );
+    }
+
+    #[test]
+    fn finds_existing_subcategory_files() {
+        let dir = std::env::temp_dir().join(format!("stella-subs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(SUBCATEGORIES_DIR)).expect("dir");
+        for f in ["umami.txt", "matomo.txt", "notes.tsv"] {
+            std::fs::write(dir.join(SUBCATEGORIES_DIR).join(f), "").expect("write");
+        }
+        assert_eq!(existing_subcategories(&dir), ["matomo", "umami"]);
+        assert!(existing_subcategories(&dir.join("absent")).is_empty());
+        std::fs::remove_dir_all(dir).expect("cleanup");
     }
 }

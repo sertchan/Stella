@@ -2,12 +2,10 @@ use crate::context::{Context, Out};
 use anyhow::Result;
 use rustc_hash::{FxHashMap, FxHashSet};
 use stella_core::category::{self, Category};
-use stella_core::list::Format;
+use stella_core::list::{self, BREAKAGE_OK, Tier};
 
-pub fn parse_format(s: &str) -> Result<Format, String> {
-    Format::from_name(s).ok_or_else(|| {
-        format!("{s} is not a format, use domains, wildcard, hosts, adblock, rpz or dnsmasq")
-    })
+pub fn parse_tier(s: &str) -> Result<Tier, String> {
+    Tier::from_slug(s).ok_or_else(|| format!("{s} is not a tier, use standard or aggressive"))
 }
 
 pub fn parse_category(s: &str) -> Result<Category, String> {
@@ -22,12 +20,12 @@ pub struct ExportArgs {
     unknown_only: bool,
     #[arg(long, help = "Skip hosts already named in a HaGeZi deny issue")]
     unfiled: bool,
-    #[arg(long, default_value = "domains", value_parser = parse_format, help = "Output format: domains, wildcard, hosts, adblock, rpz or dnsmasq")]
-    format: Format,
+    #[arg(long, value_parser = parse_tier, help = "Only this tier: standard or aggressive")]
+    tier: Option<Tier>,
     #[arg(long, value_parser = parse_category, help = "Only this list: ads, tracker, telemetry or self-hosted-telemetry")]
     category: Option<Category>,
-    #[arg(long, help = "Only this sublist, such as umami or server-side-gtm")]
-    sublist: Option<String>,
+    #[arg(long, help = "Only this subcategory, such as umami or server-side-gtm")]
+    subcategory: Option<String>,
     #[arg(
         long,
         default_value_t = 0,
@@ -41,14 +39,15 @@ pub struct ExportArgs {
     metadata: Option<std::path::PathBuf>,
 }
 
-pub const METADATA_HEADER: &str =
-    "entry\tlist\tsublist\tadded\tkind\tproducts\tevidence\tsources\tchain\taddresses\tmembers\n";
+pub const METADATA_HEADER: &str = "entry\tsubcategory\tadded\ttier\tkind\tproducts\tevidence\tsources\tchain\taddresses\tmembers\n";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Entry {
     pub name: String,
     pub category: Option<Category>,
-    pub sublist: String,
+    pub tier: Tier,
+    pub tier_reason: &'static str,
+    pub subcategory: String,
     pub zone: bool,
     pub members: Vec<String>,
     pub products: Vec<String>,
@@ -59,8 +58,15 @@ pub struct Entry {
 }
 
 impl Entry {
-    pub fn list(&self) -> &'static str {
-        self.category.map_or("-", Category::slug)
+    pub fn list(&self) -> String {
+        self.category
+            .map_or_else(|| "-".to_string(), |c| list::list_id(self.tier, c))
+    }
+
+    pub fn place(&mut self, verified: bool) {
+        if let Some(c) = self.category {
+            (self.tier, self.tier_reason) = Tier::place(c, verified);
+        }
     }
 
     pub fn reason(&self) -> String {
@@ -73,6 +79,9 @@ impl Entry {
         } else {
             format!("product {}", self.products.join(", "))
         }];
+        if !self.tier_reason.is_empty() {
+            parts.push(self.tier_reason.to_string());
+        }
         parts.extend(self.evidence.iter().cloned());
         if !self.sources.is_empty() {
             parts.push(format!("found by {}", self.sources.join(", ")));
@@ -89,9 +98,9 @@ impl Entry {
     pub fn metadata(&self, added: &str) -> String {
         let cols = [
             self.name.as_str(),
-            self.list(),
-            self.sublist.as_str(),
+            self.subcategory.as_str(),
             added,
+            self.tier_reason,
             if self.zone { "zone" } else { "host" },
             &self.products.join(","),
             &self.evidence.join(" | "),
@@ -119,11 +128,17 @@ pub struct Picks {
 }
 
 impl Picks {
-    pub fn chosen(&self, category: Option<Category>, sublist: Option<&str>) -> Vec<&Entry> {
+    pub fn chosen(
+        &self,
+        tier: Option<Tier>,
+        category: Option<Category>,
+        subcategory: Option<&str>,
+    ) -> Vec<&Entry> {
         self.entries
             .iter()
+            .filter(|e| tier.is_none_or(|t| e.tier == t))
             .filter(|e| category.is_none_or(|c| e.category == Some(c)))
-            .filter(|e| sublist.is_none_or(|s| e.sublist == s))
+            .filter(|e| subcategory.is_none_or(|s| e.subcategory == s))
             .collect()
     }
 }
@@ -142,6 +157,10 @@ pub fn promoted<'a>(
     by_zone
 }
 
+pub fn verified(e: &Entry) -> bool {
+    e.evidence.iter().any(|v| v.contains(BREAKAGE_OK))
+}
+
 fn grouped(rows: &[Vec<String>]) -> FxHashMap<&str, Vec<&str>> {
     let mut by: FxHashMap<&str, Vec<&str>> = FxHashMap::default();
     for r in rows {
@@ -150,16 +169,17 @@ fn grouped(rows: &[Vec<String>]) -> FxHashMap<&str, Vec<&str>> {
     by
 }
 
-pub fn settle_sublists(entries: &mut [Entry], candidates: &[Candidate]) {
-    let mut count: FxHashMap<(Option<Category>, &str), usize> = FxHashMap::default();
+pub fn settle_subcategories(entries: &mut [Entry], candidates: &[Candidate]) {
+    let mut count: FxHashMap<(Tier, Option<Category>, &str), usize> = FxHashMap::default();
     for (e, (c, _)) in entries.iter().zip(candidates) {
-        *count.entry((e.category, c.as_str())).or_default() += 1;
+        *count.entry((e.tier, e.category, c.as_str())).or_default() += 1;
     }
     let names: Vec<String> = entries
         .iter()
         .zip(candidates)
         .map(|(e, (c, product))| {
-            if *product || count[&(e.category, c.as_str())] >= category::MIN_COMPANY_ENTRIES {
+            if *product || count[&(e.tier, e.category, c.as_str())] >= category::MIN_COMPANY_ENTRIES
+            {
                 c.clone()
             } else {
                 category::OTHER.to_string()
@@ -167,7 +187,7 @@ pub fn settle_sublists(entries: &mut [Entry], candidates: &[Candidate]) {
         })
         .collect();
     for (e, n) in entries.iter_mut().zip(names) {
-        e.sublist = n;
+        e.subcategory = n;
     }
 }
 
@@ -258,14 +278,13 @@ pub fn select(ctx: &Context, with_known: bool, unfiled: bool, zones_min: usize) 
             .iter()
             .map(String::as_str)
             .filter(|p| Category::of_product(p) == Some(class));
-        let candidate = match category::product_sublist(own_products) {
+        let candidate = match category::product_subcategory(own_products) {
             Some(p) => (p.to_string(), true),
             None => (category::company(vendor.as_deref().unwrap_or(&own)), false),
         };
-        let entry = Entry {
+        let mut entry = Entry {
             name: h.to_string(),
             category: Some(class),
-            sublist: String::new(),
             zone: false,
             members: Vec::new(),
             products: prods,
@@ -278,7 +297,9 @@ pub fn select(ctx: &Context, with_known: bool, unfiled: bool, zones_min: usize) 
             sources: srcs,
             chain: chain.replace('>', " > "),
             addrs: addrs.to_string(),
+            ..Entry::default()
         };
+        entry.place(verified(&entry));
         (entry, candidate)
     };
     let all: Vec<Scored> = hosts.iter().map(|h| host_entry(h)).collect();
@@ -324,10 +345,9 @@ pub fn select(ctx: &Context, with_known: bool, unfiled: bool, zones_min: usize) 
             let mut srcs: Vec<String> = parts.iter().flat_map(|p| p.0.sources.clone()).collect();
             srcs.sort_unstable();
             srcs.dedup();
-            entries.push(Entry {
+            let mut whole = Entry {
                 name: zone.to_string(),
                 category: Some(c),
-                sublist: String::new(),
                 zone: true,
                 members,
                 products,
@@ -336,13 +356,14 @@ pub fn select(ctx: &Context, with_known: bool, unfiled: bool, zones_min: usize) 
                     .flat_map(|p| p.0.evidence.iter().map(|e| format!("{} {e}", p.0.name)))
                     .collect(),
                 sources: srcs,
-                chain: String::new(),
-                addrs: String::new(),
-            });
+                ..Entry::default()
+            };
+            whole.place(parts.iter().all(|p| verified(&p.0)));
+            entries.push(whole);
             candidates.push(candidate);
         }
     }
-    settle_sublists(&mut entries, &candidates);
+    settle_subcategories(&mut entries, &candidates);
     let mut order: Vec<usize> = (0..entries.len()).collect();
     order.sort_by(|a, b| entries[*a].name.cmp(&entries[*b].name));
     let entries = order.into_iter().map(|i| entries[i].clone()).collect();
@@ -354,12 +375,10 @@ pub fn select(ctx: &Context, with_known: bool, unfiled: bool, zones_min: usize) 
 
 pub fn run(ctx: &Context, args: &ExportArgs) -> Result<()> {
     let picks = select(ctx, !args.unknown_only, args.unfiled, args.zones)?;
-    let chosen = picks.chosen(args.category, args.sublist.as_deref());
+    let chosen = picks.chosen(args.tier, args.category, args.subcategory.as_deref());
     let mut out = Out::new();
     for e in &chosen {
-        for rule in args.format.rules(&e.name) {
-            out.row(&[&rule]);
-        }
+        out.row(&[&e.name]);
     }
     drop(out);
     if let Some(path) = &args.metadata {
@@ -378,10 +397,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_formats_and_categories() {
-        assert_eq!(parse_format("rpz"), Ok(Format::Rpz));
-        assert_eq!(parse_format("dnsmasq"), Ok(Format::Dnsmasq));
-        assert!(parse_format("csv").is_err());
+    fn parses_tiers_and_categories() {
+        assert_eq!(parse_tier("aggressive"), Ok(Tier::Aggressive));
+        assert_eq!(parse_tier("standard"), Ok(Tier::Standard));
+        assert!(parse_tier("pro").is_err());
         assert_eq!(
             parse_category("self-hosted-telemetry"),
             Ok(Category::SelfHostedTelemetry)
@@ -407,34 +426,73 @@ mod tests {
     }
 
     #[test]
-    fn keeps_products_and_big_companies_as_sublists() {
-        let entry = |name: &str| Entry {
+    fn keeps_products_and_big_companies_as_subcategories_per_tier() {
+        let entry = |name: &str, tier: Tier| Entry {
             name: name.into(),
             category: Some(Category::Tracker),
+            tier,
             ..Entry::default()
         };
-        let mut entries: Vec<Entry> = ["a.io", "b.io", "c.io", "d.io", "e.io"]
-            .into_iter()
-            .map(entry)
-            .collect();
+        let mut entries = vec![
+            entry("a.io", Tier::Standard),
+            entry("b.io", Tier::Standard),
+            entry("c.io", Tier::Standard),
+            entry("d.io", Tier::Standard),
+            entry("e.io", Tier::Standard),
+            entry("f.io", Tier::Aggressive),
+        ];
         let candidates = [
             ("umami".to_string(), true),
             ("pubmatic".to_string(), false),
             ("pubmatic".to_string(), false),
             ("pubmatic".to_string(), false),
             ("tiny".to_string(), false),
+            ("pubmatic".to_string(), false),
         ];
-        settle_sublists(&mut entries, &candidates);
-        let subs: Vec<&str> = entries.iter().map(|e| e.sublist.as_str()).collect();
-        assert_eq!(subs, ["umami", "pubmatic", "pubmatic", "pubmatic", "other"]);
+        settle_subcategories(&mut entries, &candidates);
+        let subs: Vec<&str> = entries.iter().map(|e| e.subcategory.as_str()).collect();
+        assert_eq!(
+            subs,
+            [
+                "umami", "pubmatic", "pubmatic", "pubmatic", "other", "other"
+            ]
+        );
+    }
+
+    #[test]
+    fn places_entries_by_breakage_and_category() {
+        let mut e = Entry {
+            name: "i.shop.com".into(),
+            category: Some(Category::Tracker),
+            evidence: vec![
+                "sgtm: gtm.js; no visible change on https://shop.com/ when blocked".into(),
+            ],
+            ..Entry::default()
+        };
+        e.place(verified(&e));
+        assert_eq!(
+            (e.tier, e.list().as_str()),
+            (Tier::Standard, "standard/tracker")
+        );
+        e.evidence.clear();
+        e.place(verified(&e));
+        assert_eq!(e.list(), "aggressive/tracker");
+        let mut umami = Entry {
+            category: Some(Category::SelfHostedTelemetry),
+            evidence: vec!["umami: script; no visible change on https://a.io/ when blocked".into()],
+            ..Entry::default()
+        };
+        umami.place(verified(&umami));
+        assert_eq!(umami.tier, Tier::Aggressive);
+        assert!(umami.tier_reason.contains("self-hosted"));
     }
 
     #[test]
     fn explains_why_an_entry_is_listed() {
-        let e = Entry {
+        let mut e = Entry {
             name: "i.shop.com".into(),
             category: Some(Category::Tracker),
-            sublist: "snowplow".into(),
+            subcategory: "snowplow".into(),
             products: vec!["snowplow".into()],
             evidence: vec!["snowplow: /i gif, cookie sp".into()],
             sources: vec!["hagezi-issue #12398 Snowplow collectors".into()],
@@ -442,13 +500,14 @@ mod tests {
             addrs: "1.2.3.4".into(),
             ..Entry::default()
         };
+        e.place(false);
         assert_eq!(
             e.reason(),
-            "product snowplow | snowplow: /i gif, cookie sp | found by hagezi-issue #12398 Snowplow collectors | CNAME x.cdn.net | resolves to 1.2.3.4"
+            "product snowplow | aggressive because the breakage test did not confirm that blocking it is safe | snowplow: /i gif, cookie sp | found by hagezi-issue #12398 Snowplow collectors | CNAME x.cdn.net | resolves to 1.2.3.4"
         );
         assert_eq!(
             e.metadata("2026-11-28T00:00:00Z"),
-            "i.shop.com\ttracker\tsnowplow\t2026-11-28T00:00:00Z\thost\tsnowplow\tsnowplow: /i gif, cookie sp\thagezi-issue #12398 Snowplow collectors\tx.cdn.net\t1.2.3.4\t\n"
+            "i.shop.com\tsnowplow\t2026-11-28T00:00:00Z\taggressive because the breakage test did not confirm that blocking it is safe\thost\tsnowplow\tsnowplow: /i gif, cookie sp\thagezi-issue #12398 Snowplow collectors\tx.cdn.net\t1.2.3.4\t\n"
         );
         let z = Entry {
             name: "uno-dns.com".into(),
@@ -461,5 +520,16 @@ mod tests {
                 .starts_with("zone with 2 picks: a.uno-dns.com, b.uno-dns.com")
         );
         assert_eq!(z.list(), "-");
+        let picks = Picks {
+            entries: vec![e, z],
+            skipped: 0,
+        };
+        assert_eq!(
+            picks
+                .chosen(Some(Tier::Aggressive), None, Some("snowplow"))
+                .len(),
+            1
+        );
+        assert!(picks.chosen(Some(Tier::Standard), None, None).is_empty());
     }
 }

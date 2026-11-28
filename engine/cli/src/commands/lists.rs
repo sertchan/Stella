@@ -4,8 +4,7 @@ use anyhow::{Result, bail};
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use stella_core::category::Category;
-use stella_core::list::Format;
+use stella_core::list::{self, DOMAINS_FILE, LISTS_DIR, Tier};
 
 pub const NXDOMAIN: i64 = 3;
 const DEAD_WHY_FIX: &str =
@@ -31,8 +30,8 @@ enum Cmd {
     Check {
         #[arg(
             long,
-            default_value = crate::commands::publish::LISTS_DIR,
-            help = "Directory with one folder per list"
+            default_value = LISTS_DIR,
+            help = "Directory with the standard and aggressive tiers"
         )]
         dir: PathBuf,
         #[command(flatten)]
@@ -40,18 +39,21 @@ enum Cmd {
     },
 }
 
-pub fn entries(dir: &Path) -> Vec<(String, &'static str)> {
+pub fn entries(dir: &Path) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for c in Category::ALL {
-        let path = dir.join(c.slug()).join(Format::Domains.file_name());
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        out.extend(
-            text.lines()
-                .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                .map(|l| (l.trim().to_string(), c.slug())),
-        );
+    for tier in Tier::ALL {
+        for &c in tier.categories() {
+            let path = list::folder(dir, tier, c).join(DOMAINS_FILE);
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let id = list::list_id(tier, c);
+            out.extend(
+                text.lines()
+                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                    .map(|l| (l.trim().to_string(), id.clone())),
+            );
+        }
     }
     out
 }
@@ -74,7 +76,10 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
         eprintln!("lists check: no entries under {}", dir.display());
         return Ok(());
     }
-    let list_of: FxHashMap<&str, &str> = listed.iter().map(|(n, l)| (n.as_str(), *l)).collect();
+    let list_of: FxHashMap<&str, &str> = listed
+        .iter()
+        .map(|(n, l)| (n.as_str(), l.as_str()))
+        .collect();
     let w = ctx.store.writer()?;
     let cfg = dns.config();
     let names: Vec<String> = listed.iter().map(|(n, _)| n.clone()).collect();
@@ -136,17 +141,17 @@ mod tests {
     fn reads_entries_and_names_states() {
         let dir = std::env::temp_dir().join(format!("stella-lists-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("tracker")).expect("dir");
+        std::fs::create_dir_all(dir.join("aggressive/tracker")).expect("dir");
         std::fs::write(
-            dir.join("tracker/domains.txt"),
+            dir.join("aggressive/tracker/domains.txt"),
             "# Title: t\n#\na.io\nb.io\n",
         )
         .expect("write");
         assert_eq!(
             entries(&dir),
             [
-                ("a.io".to_string(), "tracker"),
-                ("b.io".to_string(), "tracker")
+                ("a.io".to_string(), "aggressive/tracker".to_string()),
+                ("b.io".to_string(), "aggressive/tracker".to_string())
             ]
         );
         assert_eq!(state(NXDOMAIN, 0), "dead");

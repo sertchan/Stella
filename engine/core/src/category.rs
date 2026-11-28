@@ -33,7 +33,7 @@ const AD_SOURCE_PREFIXES: &[&str] = &[
 
 const TELEMETRY_SOURCE_PREFIXES: &[&str] = &["apk", "sdk", "extension"];
 
-const PRODUCT_SUBLISTS: &[(&str, &str)] = &[
+const PRODUCT_SUBCATEGORIES: &[(&str, &str)] = &[
     ("matomo", "matomo"),
     ("piwik", "matomo"),
     ("plausible", "plausible"),
@@ -52,9 +52,11 @@ const PRODUCT_SUBLISTS: &[(&str, &str)] = &[
 pub const OTHER: &str = "other";
 pub const MIN_COMPANY_ENTRIES: usize = 3;
 
-pub fn product_sublist<'a>(products: impl IntoIterator<Item = &'a str>) -> Option<&'static str> {
+pub fn product_subcategory<'a>(
+    products: impl IntoIterator<Item = &'a str>,
+) -> Option<&'static str> {
     let products: Vec<&str> = products.into_iter().collect();
-    PRODUCT_SUBLISTS
+    PRODUCT_SUBCATEGORIES
         .iter()
         .find(|(p, _)| products.contains(p))
         .map(|(_, s)| *s)
@@ -122,18 +124,6 @@ impl Category {
         }
     }
 
-    pub fn sublist_title(self, sublist: &str) -> String {
-        format!("{}: {sublist}", self.title())
-    }
-
-    pub fn sublist_description(self, sublist: &str) -> String {
-        format!(
-            "The {sublist} part of {}. {}",
-            self.title(),
-            self.description()
-        )
-    }
-
     pub fn from_slug(slug: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|c| c.slug() == slug)
     }
@@ -192,24 +182,15 @@ mod tests {
     }
 
     #[test]
-    fn names_sublists_by_product_or_company() {
-        assert_eq!(product_sublist(["collector", "umami"]), Some("umami"));
-        assert_eq!(product_sublist(["piwik"]), Some("matomo"));
-        assert_eq!(product_sublist(["sgtm"]), Some("server-side-gtm"));
-        assert_eq!(product_sublist(["collector"]), None);
+    fn names_subcategories_by_product_or_company() {
+        assert_eq!(product_subcategory(["collector", "umami"]), Some("umami"));
+        assert_eq!(product_subcategory(["piwik"]), Some("matomo"));
+        assert_eq!(product_subcategory(["sgtm"]), Some("server-side-gtm"));
+        assert_eq!(product_subcategory(["collector"]), None);
         assert_eq!(company("pubmatic.com"), "pubmatic");
         assert_eq!(company("1800flowers.com"), "1800flowers");
         assert_eq!(company("-.io"), OTHER);
         assert_eq!(company("other.net"), OTHER);
-        assert_eq!(
-            Category::SelfHostedTelemetry.sublist_title("umami"),
-            "Stella Self-Hosted Telemetry: umami"
-        );
-        assert!(
-            Category::Ads
-                .sublist_description("pubmatic")
-                .starts_with("The pubmatic part of Stella Ads. Ad serving")
-        );
     }
 
     #[test]

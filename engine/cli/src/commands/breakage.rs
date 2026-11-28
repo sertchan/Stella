@@ -3,6 +3,7 @@ use anyhow::Result;
 use rusqlite::params;
 use rustc_hash::FxHashMap;
 use std::time::Duration;
+use stella_core::list::BREAKAGE_OK;
 use stella_crawl::breakage::{self, Case, Options, Outcome, Snapshot};
 use stella_probe::rules::{PICK, REVIEW};
 
@@ -138,7 +139,7 @@ pub async fn run(ctx: &mut Context, args: Args) -> Result<()> {
         out.row(&[&o.host, &o.page, verdict, &why.join("; "), &metrics(&o)]);
         let note = match verdict {
             "BREAKS" => format!("blocking it changes {}: {}", o.page, j.reasons.join(", ")),
-            "OK" => format!("no visible change on {} when blocked", o.page),
+            "OK" => format!("{BREAKAGE_OK} {} when blocked", o.page),
             _ => continue,
         };
         found.entry(o.host.clone()).or_default().push(note);

@@ -187,9 +187,9 @@ fn dns_commands_use_the_given_resolver() {
     let zones = st.file("zones.txt", &["shop.test"]);
     st.stella(&["--input", &zones, "zone", "--resolver", &resolver]);
     let lists = st.dir.join("lists");
-    std::fs::create_dir_all(lists.join("tracker")).expect("lists dir");
+    std::fs::create_dir_all(lists.join("standard/tracker")).expect("lists dir");
     std::fs::write(
-        lists.join("tracker/domains.txt"),
+        lists.join("standard/tracker/domains.txt"),
         "# Title: t\n#\na.shop.test\ngone.shop.test\n",
     )
     .expect("list");
@@ -197,7 +197,7 @@ fn dns_commands_use_the_given_resolver() {
     let err = st.fails(&["lists", "check", "--dir", &dir, "--resolver", &resolver]);
     assert!(err.contains("1 dead entr(ies)"), "{err}");
     std::fs::write(
-        lists.join("tracker/domains.txt"),
+        lists.join("standard/tracker/domains.txt"),
         "# Title: t\na.shop.test\n",
     )
     .expect("list");
@@ -373,26 +373,28 @@ fn store_commands_read_and_update_the_database() {
             .expect("meta")
             .contains("t1.shop.test")
     );
-    for f in ["wildcard", "hosts", "adblock", "rpz", "dnsmasq"] {
-        st.stella(&["export", "--format", f, "--zones", "2", "--unknown-only"]);
+    for tier in ["standard", "aggressive"] {
+        st.stella(&["export", "--tier", tier, "--zones", "2", "--unknown-only"]);
     }
     st.stella(&["export", "--unfiled"]);
     let out = st.dir.join("pub").display().to_string();
     st.stella(&["publish", "--dir", &out]);
-    for list in stella_core::category::Category::ALL {
-        for format in stella_core::list::Format::ALL {
-            let p = st
-                .dir
-                .join("pub")
-                .join(list.slug())
-                .join(format.file_name());
-            let text = std::fs::read_to_string(&p).expect("published list");
-            assert!(text.contains(list.title()), "{}", p.display());
+    let root = st.dir.join("pub");
+    for tier in stella_core::list::Tier::ALL {
+        for &list in tier.categories() {
+            let dir = stella_core::list::folder(&root, tier, list);
+            let text = std::fs::read_to_string(dir.join("domains.txt")).expect("published list");
+            assert!(text.contains(list.title()), "{}", dir.display());
+            assert!(text.contains(tier.audience()), "{}", dir.display());
+            assert!(dir.join("metadata.tsv").is_file(), "{}", dir.display());
+            assert!(dir.join("subcategories").is_dir(), "{}", dir.display());
+            assert!(!dir.join("adblock.txt").exists(), "{}", dir.display());
         }
     }
+    assert!(!root.join("standard/self-hosted-telemetry").exists());
     let log = std::fs::read_to_string(st.dir.join("pub/changelog.tsv")).expect("changelog");
     assert!(
-        log.starts_with("time\taction\tentry\tlist\tsublist\treason\n"),
+        log.starts_with("time\taction\tentry\tlist\tsubcategory\treason\n"),
         "{log}"
     );
     assert!(log.contains("\tadded\t"), "{log}");
@@ -404,10 +406,10 @@ fn store_commands_read_and_update_the_database() {
     );
     let counts = std::fs::read_to_string(st.dir.join("pub/counts.tsv")).expect("counts");
     assert!(
-        counts.starts_with("list\tsublist\tentries\nads\t-\t"),
+        counts.starts_with("list\tsubcategory\tentries\nstandard/ads\t-\t"),
         "{counts}"
     );
-    st.stella(&["export", "--category", "tracker", "--format", "rpz"]);
+    st.stella(&["export", "--category", "tracker", "--subcategory", "other"]);
     st.stella(&["pivot"]);
     st.stella(&["pivot", "--with-review", "--max-ip", "2"]);
     st.stella(&["mates"]);
