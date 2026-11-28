@@ -9,7 +9,20 @@ use std::time::Duration;
 use tokio::sync::{Semaphore, mpsc};
 use tokio::time::Instant;
 
-const MEASURE_JS: &str = r#"JSON.stringify({t: document.title || "", x: ((document.body && document.body.innerText) || "").length, c: document.querySelectorAll("a[href],button,input,select,textarea").length, f: Array.from(document.querySelectorAll("iframe")).filter(e => e.offsetWidth * e.offsetHeight > 0).length})"#;
+const MEASURE_JS: &str = r#"(() => {
+  const consent = /cookie|consent|onetrust|cybot|didomi|usercentrics|gdpr|klaro|iubenda|truste|qc-cmp|cmpbox|cky-/i;
+  const sig = e => (e.id || "") + " " + (typeof e.className === "string" ? e.className : "");
+  const inConsent = e => { for (let n = e; n && n !== document.body; n = n.parentElement) { if (consent.test(sig(n))) return true; } return false; };
+  const body = document.body;
+  const all = body ? Array.from(body.querySelectorAll("*")) : [];
+  const roots = all.filter(e => consent.test(sig(e)) && !inConsent(e.parentElement));
+  const hidden = roots.reduce((a, e) => a + (e.innerText || "").length, 0);
+  const text = Math.max(0, ((body && body.innerText) || "").length - hidden);
+  const controls = Array.from(document.querySelectorAll("a[href],button,input,select,textarea")).filter(e => e.getClientRects().length > 0 && !inConsent(e)).length;
+  const frames = Array.from(document.querySelectorAll("iframe")).filter(e => e.offsetWidth * e.offsetHeight > 0 && !inConsent(e) && !consent.test(e.src || "")).length;
+  return JSON.stringify({t: document.title || "", x: text, c: controls, f: frames});
+})()"#;
+pub const CONFIRM_NOTE: &str = "a first blocked load differed, but a second blocked load next to a fresh unblocked load did not repeat it";
 const BASE_RUNS: usize = 2;
 const MIN_TEXT: usize = 200;
 const MIN_CONTROLS: usize = 10;
@@ -320,6 +333,26 @@ pub fn judge(base: &[Snapshot], blocked: &Snapshot) -> Judgement {
     j
 }
 
+pub fn confirm(first: Judgement, second: Judgement) -> Judgement {
+    if !first.breaks || second.breaks {
+        return first;
+    }
+    if !second.known {
+        return Judgement {
+            notes: [first.reasons, second.notes].concat(),
+            ..Judgement::default()
+        };
+    }
+    let mut notes = vec![format!("{CONFIRM_NOTE}: {}", first.reasons.join("; "))];
+    notes.extend(second.notes);
+    Judgement {
+        known: true,
+        breaks: false,
+        reasons: Vec::new(),
+        notes,
+    }
+}
+
 fn launch(opts: &Options, compositor: Option<&Compositor>, extra: Vec<String>) -> Launch {
     Launch {
         headful: opts.headful,
@@ -386,15 +419,25 @@ pub async fn run(
         let permit = sem.clone().acquire_owned().await?;
         wait_for_memory().await;
         let profile = work.join(format!("blocked-{n}"));
+        let fresh_profile = work.join(format!("fresh-{n}"));
         let l = launch(&opts, compositor.as_ref(), vec![block_rule(&case.host)]);
+        let fresh = launch(&opts, compositor.as_ref(), Vec::new());
         let (base, opts, tx) = (base.clone(), opts.clone(), tx.clone());
         set.spawn(async move {
             match Browser::launch(&l, &profile).await {
                 Ok(b) => {
                     for page in &case.pages {
                         let blocked = snapshot(&b, page, &opts, Some(&case.host)).await;
-                        let runs = base.get(page).cloned().unwrap_or_default();
-                        let judgement = judge(&runs, &blocked);
+                        let mut runs = base.get(page).cloned().unwrap_or_default();
+                        let mut judgement = judge(&runs, &blocked);
+                        if judgement.breaks {
+                            if let Ok(f) = Browser::launch(&fresh, &fresh_profile).await {
+                                runs.push(snapshot(&f, page, &opts, None).await);
+                                f.close().await;
+                            }
+                            let again = snapshot(&b, page, &opts, Some(&case.host)).await;
+                            judgement = confirm(judge(&runs, &blocked), judge(&runs, &again));
+                        }
                         let _ = tx
                             .send(Outcome {
                                 host: case.host.clone(),
@@ -471,6 +514,33 @@ mod tests {
         assert!(!j.breaks);
         assert_eq!(j.notes, ["visible frames 2 -> 0"]);
         assert!(judge(&[framed(2), framed(2)], &framed(2)).notes.is_empty());
+        let broken = judge(&base, &snap(300, 4, "Shop", 1));
+        let fine = judge(&base, &snap(5000, 120, "Shop", 1));
+        let j = confirm(broken, fine);
+        assert!(j.known && !j.breaks && j.reasons.is_empty());
+        assert!(j.notes[0].starts_with(CONFIRM_NOTE), "{:?}", j.notes);
+        assert!(
+            j.notes[0].contains("visible text 5000 -> 300"),
+            "{:?}",
+            j.notes
+        );
+        let j = confirm(
+            judge(&base, &snap(300, 4, "Shop", 1)),
+            judge(&base, &snap(200, 3, "Shop", 1)),
+        );
+        assert!(j.breaks && j.reasons[0] == "visible text 5000 -> 300");
+        let j = confirm(
+            judge(&base, &snap(300, 4, "Shop", 1)),
+            judge(&base, &crashed),
+        );
+        assert!(!j.known && !j.breaks);
+        assert!(
+            !confirm(
+                judge(&base, &snap(5000, 120, "Shop", 1)),
+                judge(&base, &snap(1, 1, "", 0))
+            )
+            .breaks
+        );
         assert_eq!(
             block_rule("t.shop.com"),
             "--host-resolver-rules=MAP t.shop.com ~NOTFOUND, MAP *.t.shop.com ~NOTFOUND"

@@ -6,7 +6,7 @@ use stella_testkit::http::{Http, Reply, Site};
 use tokio::sync::mpsc;
 
 const PAGE: &str = r#"<html><head><title>Shop</title>
-<script>document.write('<script src="http://assets.localhost:' + location.port + '/app.js"><\/script>');</script>
+<script>document.write('<script src="http://assets.localhost:' + location.port + '/app.js"><\/script><script src="http://consent.localhost:' + location.port + '/cmp.js"><\/script>');</script>
 </head><body><h1>Shop</h1><button>Buy</button>
 <script>
 fetch("/collect?uid=1234567890abcdef", { method: "POST", body: "x" });
@@ -27,12 +27,37 @@ const APP: &str = r#"document.addEventListener("DOMContentLoaded", () => {
   }
 });"#;
 
+const CMP: &str = r#"document.addEventListener("DOMContentLoaded", () => {
+  const sdk = document.createElement("div");
+  sdk.id = "onetrust-consent-sdk";
+  const p = document.createElement("p");
+  p.textContent = "We use cookies ".repeat(300);
+  sdk.appendChild(p);
+  for (let i = 0; i < 40; i++) {
+    const b = document.createElement("button");
+    b.textContent = "vendor " + i;
+    sdk.appendChild(b);
+  }
+  document.body.appendChild(sdk);
+  const form = document.createElement("form");
+  for (let i = 0; i < 40; i++) {
+    const h = document.createElement("input");
+    h.type = "hidden";
+    form.appendChild(h);
+  }
+  document.body.appendChild(form);
+});"#;
+
 async fn shop() -> Http {
     let site = Site::new()
         .route("/", Reply::ok(PAGE).header("Content-Type", "text/html"))
         .route(
             "/app.js",
             Reply::ok(APP).header("Content-Type", "application/javascript"),
+        )
+        .route(
+            "/cmp.js",
+            Reply::ok(CMP).header("Content-Type", "application/javascript"),
         )
         .fallback(Reply::new(204));
     Http::plain(site).await.expect("shop server")
@@ -128,6 +153,10 @@ async fn breakage_sees_a_page_lose_its_script() {
             pages: vec![url.clone()],
         },
         Case {
+            host: "consent.localhost".into(),
+            pages: vec![url.clone()],
+        },
+        Case {
             host: "unused.localhost".into(),
             pages: vec![url.clone()],
         },
@@ -137,18 +166,31 @@ async fn breakage_sees_a_page_lose_its_script() {
         .expect("breakage run");
     let mut seen = Vec::new();
     while let Some(o) = rx.recv().await {
-        assert_eq!(o.base.len(), 2);
+        assert_eq!(
+            o.base.len(),
+            if o.judgement.breaks { 3 } else { 2 },
+            "{:?}",
+            o.base
+        );
         assert!(o.base.iter().all(|s| s.title == "Shop"), "{:?}", o.base);
         seen.push((o.host, o.judgement.breaks, o.blocked.controls));
     }
     seen.sort();
-    assert_eq!(seen.len(), 2, "{seen:?}");
+    assert_eq!(seen.len(), 3, "{seen:?}");
     assert!(
         seen[0].1,
         "blocking the script host must break the page: {seen:?}"
     );
     assert!(
         !seen[1].1,
+        "blocking the consent banner host must not break the page: {seen:?}"
+    );
+    assert_eq!(
+        seen[1].2, seen[2].2,
+        "consent banner and hidden controls must not count: {seen:?}"
+    );
+    assert!(
+        !seen[2].1,
         "blocking an unused host must not break the page: {seen:?}"
     );
     assert_eq!(
