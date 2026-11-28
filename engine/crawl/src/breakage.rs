@@ -226,12 +226,49 @@ fn dropped(
     (drop > (2 * (hi - lo)).max(lo / 4)).then(|| format!("{what} {lo} -> {blocked}"))
 }
 
+const NAVIGATION_ERROR: &str = "net::ERR_";
+const INTERSTITIALS: [&str; 8] = [
+    "just a moment",
+    "attention required",
+    "too many requests",
+    "access denied",
+    "403 forbidden",
+    "429",
+    "are you a robot",
+    "security check",
+];
+
+pub fn interstitial(title: &str) -> bool {
+    let t = title.to_ascii_lowercase();
+    INTERSTITIALS.iter().any(|m| t.contains(m))
+}
+
 pub fn judge(base: &[Snapshot], blocked: &Snapshot) -> Judgement {
     let ok: Vec<&Snapshot> = base.iter().filter(|s| s.error.is_none()).collect();
     let mut j = Judgement::default();
     if ok.is_empty() {
         j.notes
             .push("page did not load without blocking either".into());
+        return j;
+    }
+    if let Some(t) = ok
+        .iter()
+        .map(|s| s.title.as_str())
+        .find(|t| interstitial(t))
+    {
+        j.notes.push(format!(
+            "the page without blocking was a challenge or error page: {t:?}"
+        ));
+        return j;
+    }
+    if let Some(e) = blocked
+        .error
+        .as_deref()
+        .filter(|e| !e.contains(NAVIGATION_ERROR))
+    {
+        j.notes.push(format!(
+            "the browser failed while the host was blocked: {e}"
+        ));
         return j;
     }
     j.known = true;
@@ -404,10 +441,27 @@ mod tests {
         assert!(judge(&base, &snap(300, 4, "Shop", 1)).breaks);
         assert!(judge(&base, &snap(5000, 120, "Error", 1)).breaks);
         let failed = Snapshot {
-            error: Some("timeout".into()),
+            error: Some("net::ERR_NAME_NOT_RESOLVED".into()),
             ..Snapshot::default()
         };
         assert!(judge(&base, &failed).breaks);
+        let crashed = Snapshot {
+            error: Some("cdp socket closed".into()),
+            ..Snapshot::default()
+        };
+        let j = judge(&base, &crashed);
+        assert!(!j.known && !j.breaks);
+        assert_eq!(
+            j.notes,
+            ["the browser failed while the host was blocked: cdp socket closed"]
+        );
+        let challenged = vec![
+            snap(5000, 120, "Just a moment...", 1),
+            snap(5000, 120, "Shop", 1),
+        ];
+        let j = judge(&challenged, &snap(5000, 120, "Shop", 1));
+        assert!(!j.known && !j.breaks);
+        assert!(interstitial("429 Too Many Requests") && !interstitial("Shop"));
         assert!(!judge(std::slice::from_ref(&failed), &snap(10, 1, "", 0)).known);
         let framed = |f: usize| Snapshot {
             frames: f,
